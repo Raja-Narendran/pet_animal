@@ -50,6 +50,7 @@ class ResponseBubbleWidget(QWidget):
         self.label = QLabel("", self)
         self.label.setFont(QFont("Segoe UI", 9))
         self.label.setWordWrap(True)
+        self.label.setTextFormat(Qt.TextFormat.PlainText)
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setStyleSheet("""
             QLabel {
@@ -100,7 +101,7 @@ class ResponseBubbleWidget(QWidget):
         self.label.setText(message)
         self.adjustSize()
         self.show()
-        logger.debug(f"Response bubble showing: '{message}'")
+        logger.debug("Response bubble displayed")
 
         if self.auto_hide_timer.isActive():
             self.auto_hide_timer.stop()

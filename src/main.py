@@ -1,6 +1,9 @@
 """Main application entry point for Pet Animal Desktop Companion."""
 import sys
 import ctypes
+import os
+import json
+import tempfile
 from pathlib import Path
 
 # Ensure project root is in sys.path
@@ -12,7 +15,9 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 from src.config.settings import settings
 from src.utils.logger import setup_logger
-from src.app.pet_window import PetWindow
+from src.app.controller import ApplicationController
+from src.core.application import ApplicationCore
+from src.config.settings import _get_data_dir
 
 
 def enable_windows_dpi_awareness():
@@ -35,6 +40,9 @@ def main():
     logger = setup_logger("main")
     logger.info(f"Starting {settings.APP_NAME} v{settings.VERSION}...")
 
+    self_test = '--self-test' in sys.argv
+    if self_test:
+        os.environ['QT_QPA_PLATFORM'] = 'offscreen'
     # Enable High DPI pixmaps
     app = QApplication(sys.argv)
     app.setApplicationName(settings.APP_NAME)
@@ -43,12 +51,60 @@ def main():
     # Don't quit if window is hidden to tray
     app.setQuitOnLastWindowClosed(False)
 
+    if self_test:
+        run_self_test(app)
+        return
+
     # Create and display desktop companion
-    window = PetWindow()
-    window.show()
+    core = ApplicationCore(_get_data_dir())
+    controller = ApplicationController(core)
 
     logger.info("Pet Animal running. Entering event loop.")
     sys.exit(app.exec())
+
+
+def run_self_test(app):
+    """Validate the frozen executable with isolated data and no external launches."""
+    from PyQt6.QtGui import QFontDatabase
+    from src.core.application import DEFAULT_PET
+    for filename in ('segoeui.ttf', 'segoeuib.ttf'):
+        QFontDatabase.addApplicationFont(str(Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts' / filename))
+    report_path = Path(sys.argv[sys.argv.index('--self-test') + 1])
+    result = dict(success=False, version=settings.VERSION)
+    with tempfile.TemporaryDirectory(prefix='pet-animal-verification-') as temp:
+        settings.STATE_FILE = Path(temp) / 'state.json'
+        core = ApplicationCore(temp)
+        controller = ApplicationController(core)
+        try:
+            core.confirm_name('Verification user')
+            assert core.execute('what is my name')['message'] == 'Verification user'
+            backup = core.backup()
+            core.confirm_name('Changed')
+            core.restore(backup)
+            assert core.execute('what is my name')['message'] == 'Verification user'
+            for index in range(6):
+                controller.manager.navigation.setCurrentRow(index)
+                app.processEvents()
+            core.save_profile('Verification pet', 'builtin-idle', dict(DEFAULT_PET, size=128))
+            assert controller.pet.pet.width() == 128
+            controller.show_pet()
+            controller.manager.close()
+            app.processEvents()
+            assert controller.pet.isVisible() and not controller.manager.isVisible()
+            assert not controller.pet.command_box.voice_button.isVisible()
+            controller.quit()
+            assert not controller.pet.tray_icon.isVisible()
+            result.update(success=True, checks=['SQLite migration', 'memory persistence', 'backup restore', 'six Manager pages', 'live profile switching', 'independent Manager closing', 'voice disabled', 'quit cleanup'])
+        except Exception as error:
+            result['error'] = str(error)
+        finally:
+            app.aboutToQuit.disconnect(controller.shutdown)
+            controller.shutdown()
+            controller.manager.hide()
+            controller.pet.hide()
+    report_path.write_text(json.dumps(result, indent=2), encoding='utf8')
+    if not result['success']:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

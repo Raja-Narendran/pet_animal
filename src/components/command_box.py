@@ -10,6 +10,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QBrush, QPen
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QTimer
 from .voice_button import VoiceButton
 from ..services.voice_input import VoiceInputWorker, SPEECH_AVAILABLE
+from ..config.settings import settings
 from ..utils.logger import get_logger
 
 logger = get_logger("command_box")
@@ -116,6 +117,7 @@ class CommandBoxWidget(QWidget):
 
         layout.addWidget(self.input_field)
         layout.addWidget(self.voice_button)
+        self.voice_button.setVisible(settings.VOICE_ENABLED)
         layout.addWidget(self.send_button)
 
     def paintEvent(self, event) -> None:
@@ -143,7 +145,9 @@ class CommandBoxWidget(QWidget):
         # Draw main background
         bg_path = QPainterPath()
         bg_path.addRoundedRect(box_rect, self.BORDER_RADIUS, self.BORDER_RADIUS)
-        painter.fillPath(bg_path, QColor(24, 24, 27, 240))
+        color = QColor(getattr(self, "background_color", "#18181b"))
+        color.setAlphaF(getattr(self, "background_opacity", 240 / 255))
+        painter.fillPath(bg_path, color)
 
         # Draw border
         painter.setPen(QPen(QColor(255, 255, 255, 46), 1.0))
@@ -154,7 +158,7 @@ class CommandBoxWidget(QWidget):
     def _handle_submit(self) -> None:
         """Processes and emits the command."""
         text = self.input_field.text().strip()
-        logger.debug(f"User submitted command: '{text}'")
+        logger.debug("Command submitted")
         self.command_submitted.emit(text)
         self.input_field.clear()
 
@@ -167,6 +171,8 @@ class CommandBoxWidget(QWidget):
 
     def _start_voice_input(self) -> None:
         """Launches the background voice recognition worker."""
+        if not settings.VOICE_ENABLED:
+            return
         if self._voice_worker and self._voice_worker.isRunning():
             logger.debug("Voice worker already running, ignoring.")
             return

@@ -29,3 +29,15 @@ htmlcov/
 # IDE
 .vscode/
 .idea/
+
+# AI Agent instructions & skills (local only)
+agent.md
+AGENT.md
+AGENTS.md
+skill.md
+SKILL.md
+.agents/
+.agent/
+
+# Keep the reproducible application packaging specification
+!pet-animal.spec

@@ -12,6 +12,11 @@ def _get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _get_data_dir() -> Path:
+    """Windows LocalAppData; an OS-appropriate fallback for development."""
+    return Path(os.environ.get("LOCALAPPDATA", str(Path.home() / ".local" / "share"))) / "PetAnimal"
+
+
 @dataclass
 class Settings:
     """Configuration settings for Pet Animal."""
@@ -19,13 +24,13 @@ class Settings:
     # Application Info
     APP_NAME: str = "Pet Animal"
     APP_ID: str = "com.petanimal.desktop"
-    VERSION: str = "1.0.0"
+    VERSION: str = "2.0.0"
     
     # Paths
     BASE_DIR: Path = field(default_factory=_get_base_dir)
     PET_IMAGE_DIR: Path = field(default_factory=lambda: _get_base_dir() / "petimage")
-    STATE_FILE: Path = field(default_factory=lambda: Path.home() / ".pet_animal" / "state.json")
-    LOG_FILE: Path = field(default_factory=lambda: Path.home() / ".pet_animal" / "pet_animal.log")
+    STATE_FILE: Path = field(default_factory=lambda: _get_data_dir() / "state.json")
+    LOG_FILE: Path = field(default_factory=lambda: _get_data_dir() / "logs" / "pet_animal.log")
     
     # Window & Display
     PET_WIDTH: int = 240
@@ -36,7 +41,7 @@ class Settings:
     BUBBLE_TIMEOUT_MS: int = 6000
 
     # Voice Input
-    VOICE_ENABLED: bool = True          # Master switch for voice input feature
+    VOICE_ENABLED: bool = False          # Master switch for voice input feature
     VOICE_TIMEOUT_S: int = 5            # Seconds to wait for speech to start
     VOICE_PHRASE_LIMIT_S: int = 10      # Max seconds for a single spoken phrase
     VOICE_NETWORK_TIMEOUT_S: int = 10   # Timeout for speech recognition requests

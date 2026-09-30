@@ -203,3 +203,12 @@ class WindowsLauncher(BaseLauncher):
         """Automates searching and playing the song on YouTube, skipping ads."""
         from .youtube_automation import YouTubeAutomationService
         return YouTubeAutomationService.play_song(song_name)
+
+    def open_registered_url(self, url: str) -> Tuple[bool, str]:
+        """Open only a URL validated by the registered action schema."""
+        from ..core.application import ApplicationCore
+        ApplicationCore.validate_action('url', url)
+        try:
+            return (True, 'Opening website…') if webbrowser.open(url) else (False, 'Could not open the browser.')
+        except Exception:
+            return False, 'Could not open the browser.'

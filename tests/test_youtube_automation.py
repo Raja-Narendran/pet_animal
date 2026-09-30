@@ -1,4 +1,4 @@
-"""Unit tests for YouTubeAutomationService with ad-skipping and fallback logic."""
+"""Unit tests for YouTubeAutomationService supporting existing-browser playback and ad-skipping."""
 from unittest.mock import MagicMock, patch
 import pytest
 from src.services.youtube_automation import YouTubeAutomationService
@@ -48,8 +48,37 @@ def test_play_song_empty():
     assert "Please specify a song name" in msg
 
 
+@patch("webbrowser.open")
+@patch.object(YouTubeAutomationService, "resolve_original_video_id")
+def test_play_song_existing_browser_direct_video(mock_resolve, mock_browser):
+    """Verifies that play_song opens the video directly in the user's existing browser."""
+    mock_resolve.return_value = "JGwWNGJdvx8"
+    mock_browser.return_value = True
+
+    success, msg = YouTubeAutomationService.play_song("shape of you")
+
+    assert success is True
+    assert "Playing 'shape of you' on YouTube..." in msg
+    mock_resolve.assert_called_once_with("shape of you")
+    mock_browser.assert_called_once_with("https://www.youtube.com/watch?v=JGwWNGJdvx8")
+
+
+@patch("webbrowser.open")
+@patch.object(YouTubeAutomationService, "resolve_original_video_id")
+def test_play_song_existing_browser_fallback_search(mock_resolve, mock_browser):
+    """Verifies fallback to YouTube search page in existing browser if ID resolution fails."""
+    mock_resolve.return_value = None
+    mock_browser.return_value = True
+
+    success, msg = YouTubeAutomationService.play_song("unknown song title")
+
+    assert success is True
+    assert "Searching for 'unknown song title' on YouTube..." in msg
+    mock_browser.assert_called_once_with("https://www.youtube.com/results?search_query=unknown+song+title")
+
+
 @patch.object(YouTubeAutomationService, "_create_webdriver")
-def test_play_song_skips_ad_and_clicks_original(mock_create_driver):
+def test_play_song_with_selenium_skips_ad_and_clicks_original(mock_create_driver):
     mock_driver = MagicMock()
     mock_create_driver.return_value = mock_driver
 
@@ -74,19 +103,8 @@ def test_play_song_skips_ad_and_clicks_original(mock_create_driver):
     mock_driver.find_elements.return_value = [ad_elem, video_elem]
 
     with patch("selenium.webdriver.support.ui.WebDriverWait.until"):
-        success, msg = YouTubeAutomationService.play_song("shape of you")
+        success, msg = YouTubeAutomationService.play_song_with_selenium("shape of you")
 
     assert success is True
     assert "Playing 'shape of you' on YouTube..." in msg
-    # Ad element must not have its title clicked
     title_link.click.assert_called_once()
-
-
-@patch.object(YouTubeAutomationService, "_create_webdriver", return_value=None)
-@patch("webbrowser.open")
-def test_play_song_fallback_when_no_driver(mock_browser, mock_driver):
-    mock_browser.return_value = True
-    success, msg = YouTubeAutomationService.play_song("believer")
-    assert success is True
-    mock_browser.assert_called_once()
-    assert "believer" in mock_browser.call_args[0][0] or "youtube.com" in mock_browser.call_args[0][0]

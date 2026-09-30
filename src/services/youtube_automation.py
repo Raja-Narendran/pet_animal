@@ -1,10 +1,10 @@
-"""YouTube browser automation service using Selenium with ad-skipping logic.
+"""YouTube music playback service for desktop companion.
 
-Provides:
-- Automated YouTube search and auto-click of the first genuine video.
-- Explicit detection and skipping of advertisements and sponsored slots.
-- Persistent browser playback (detach=True) so the song keeps playing.
-- Resilient fallback to default browser URL opening if WebDriver is unavailable.
+Features:
+- Opens songs directly in the user's EXISTING default browser (as a new tab).
+- Automatically finds the top organic/original song video, skipping advertisements and sponsored slots.
+- No separate automation browser or test profiles.
+- Optional Selenium automation mode retained for automated environments.
 """
 import re
 import urllib.parse
@@ -18,7 +18,75 @@ logger = get_logger("youtube_automation")
 
 
 class YouTubeAutomationService:
-    """Automates YouTube playback in a real browser, skipping ads."""
+    """Manages YouTube song search and playback."""
+
+    @staticmethod
+    def resolve_original_video_id(song_name: str) -> Optional[str]:
+        """Queries YouTube search results to extract the first authentic, non-ad video ID.
+        
+        Filters out 'adSlotRenderer', 'promotedSparklesWebRenderer', and other promotional
+        cards by specifically matching genuine 'videoRenderer' entries.
+        """
+        try:
+            encoded = urllib.parse.quote_plus(song_name)
+            search_url = f"https://www.youtube.com/results?search_query={encoded}"
+            req = urllib.request.Request(
+                search_url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+                # Look specifically for organic videoRenderer entries
+                matches = re.findall(r'videoRenderer.*?videoId...([a-zA-Z0-9_-]{11})', html)
+                if matches:
+                    logger.info(f"Resolved original video ID for '{song_name}': {matches[0]}")
+                    return matches[0]
+        except Exception as e:
+            logger.warning(f"Could not resolve video ID for '{song_name}': {e}")
+        return None
+
+    @classmethod
+    def play_in_existing_browser(cls, song_name: str) -> Tuple[bool, str]:
+        """Plays the song in the user's current, already-opened default browser window."""
+        song_name = song_name.strip()
+        if not song_name:
+            return False, "Please specify a song name."
+
+        video_id = cls.resolve_original_video_id(song_name)
+        if video_id:
+            watch_url = f"https://www.youtube.com/watch?v={video_id}"
+            logger.info(f"Opening YouTube video in existing browser: {watch_url}")
+            opened = webbrowser.open(watch_url)
+            if opened:
+                return True, f"Playing '{song_name}' on YouTube..."
+            return False, "Could not open browser."
+
+        # Fallback to search query if direct ID resolution failed
+        encoded = urllib.parse.quote_plus(song_name)
+        search_url = f"https://www.youtube.com/results?search_query={encoded}"
+        logger.info(f"Opening YouTube search in existing browser fallback: {search_url}")
+        webbrowser.open(search_url)
+        return True, f"Searching for '{song_name}' on YouTube..."
+
+    @classmethod
+    def play_song(cls, song_name: str, use_selenium: bool = False) -> Tuple[bool, str]:
+        """Main entry point: plays song in user's existing browser by default."""
+        if not song_name or not song_name.strip():
+            return False, "Please specify a song name."
+
+        if use_selenium:
+            return cls.play_song_with_selenium(song_name)
+
+        return cls.play_in_existing_browser(song_name)
+
+    # --- Optional Selenium automation mode ---
 
     @staticmethod
     def is_ad_element(element) -> bool:
@@ -28,14 +96,12 @@ class YouTubeAutomationService:
             if "ad-slot" in tag or "promoted" in tag:
                 return True
 
-            # Check inner HTML / text for ad indicators
             inner_text = element.text.lower() if element.text else ""
             lines = [line.strip().lower() for line in inner_text.splitlines() if line.strip()]
-            for line in lines[:3]:  # Ads typically show 'Sponsored' or 'Ad' at the very top
+            for line in lines[:3]:
                 if line in ("ad", "sponsored", "promoted"):
                     return True
 
-            # Check for ad badge classes or attributes
             ad_badges = element.find_elements("css selector", ".badge-style-type-ad, [aria-label*='Sponsored'], ytd-ad-slot-renderer")
             if ad_badges:
                 return True
@@ -50,37 +116,31 @@ class YouTubeAutomationService:
         from selenium.webdriver.chrome.options import Options as ChromeOptions
         from selenium.webdriver.edge.options import Options as EdgeOptions
 
-        # 1. Try Chrome first
         try:
             chrome_opts = ChromeOptions()
             chrome_opts.add_experimental_option("detach", True)
             chrome_opts.add_argument("--start-maximized")
             chrome_opts.add_argument("--disable-notifications")
             chrome_opts.add_argument("--log-level=3")
-            driver = webdriver.Chrome(options=chrome_opts)
-            logger.info("Initialized Chrome WebDriver.")
-            return driver
+            return webdriver.Chrome(options=chrome_opts)
         except Exception as e:
             logger.warning(f"Could not initialize Chrome WebDriver: {e}. Trying Edge...")
 
-        # 2. Try Edge as secondary
         try:
             edge_opts = EdgeOptions()
             edge_opts.add_experimental_option("detach", True)
             edge_opts.add_argument("--start-maximized")
             edge_opts.add_argument("--disable-notifications")
             edge_opts.add_argument("--log-level=3")
-            driver = webdriver.Edge(options=edge_opts)
-            logger.info("Initialized Edge WebDriver.")
-            return driver
+            return webdriver.Edge(options=edge_opts)
         except Exception as e:
             logger.warning(f"Could not initialize Edge WebDriver: {e}")
 
         return None
 
     @classmethod
-    def play_song(cls, song_name: str) -> Tuple[bool, str]:
-        """Searches for a song on YouTube, skips advertisements, and plays the first original video."""
+    def play_song_with_selenium(cls, song_name: str) -> Tuple[bool, str]:
+        """Automates searching and auto-clicking the first non-ad video using Selenium."""
         song_name = song_name.strip()
         if not song_name:
             return False, "Please specify a song name."
@@ -88,7 +148,6 @@ class YouTubeAutomationService:
         encoded = urllib.parse.quote_plus(song_name)
         search_url = f"https://www.youtube.com/results?search_query={encoded}"
 
-        # Attempt Selenium automation
         try:
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.ui import WebDriverWait
@@ -102,7 +161,6 @@ class YouTubeAutomationService:
                 timeout = settings.YOUTUBE_SELENIUM_TIMEOUT_S
                 wait = WebDriverWait(driver, timeout)
 
-                # Wait for search results to load
                 wait.until(
                     EC.presence_of_element_located((
                         By.CSS_SELECTOR,
@@ -110,7 +168,6 @@ class YouTubeAutomationService:
                     ))
                 )
 
-                # Query candidate result containers
                 candidates = driver.find_elements(
                     By.CSS_SELECTOR,
                     "ytd-video-renderer, ytd-ad-slot-renderer, ytd-promoted-video-renderer",
@@ -122,7 +179,6 @@ class YouTubeAutomationService:
                         logger.info("Detected advertisement slot in search results, skipping...")
                         continue
 
-                    # Look for video title link
                     title_links = candidate.find_elements(By.CSS_SELECTOR, "a#video-title")
                     if title_links and title_links[0].is_displayed():
                         chosen_video = title_links[0]
@@ -136,41 +192,13 @@ class YouTubeAutomationService:
                     try:
                         chosen_video.click()
                     except Exception:
-                        # Fallback to JavaScript click or direct navigation
                         if video_href:
                             driver.get(video_href)
                         else:
                             driver.execute_script("arguments[0].click();", chosen_video)
 
                     return True, f"Playing '{song_name}' on YouTube..."
-                else:
-                    logger.warning("No non-ad video element found to click via Selenium.")
         except Exception as e:
-            logger.warning(f"Selenium playback failed: {e}. Falling back to default browser.")
+            logger.warning(f"Selenium playback failed: {e}. Falling back to existing browser.")
 
-        # Fallback: extract organic video ID or open search in default browser
-        return cls._fallback_open(song_name, search_url)
-
-    @classmethod
-    def _fallback_open(cls, song_name: str, search_url: str) -> Tuple[bool, str]:
-        """Resilient fallback that opens the video or search page in system's default browser."""
-        try:
-            req = urllib.request.Request(
-                search_url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            )
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                html = resp.read().decode("utf-8", errors="ignore")
-                # Look specifically for organic videoRenderer (not adSlotRenderer)
-                matches = re.findall(r'videoRenderer.*?"videoId":"([a-zA-Z0-9_-]{11})"', html)
-                if matches:
-                    watch_url = f"https://www.youtube.com/watch?v={matches[0]}"
-                    logger.info(f"Fallback opening organic watch URL: {watch_url}")
-                    webbrowser.open(watch_url)
-                    return True, f"Playing '{song_name}' on YouTube..."
-        except Exception as e:
-            logger.warning(f"Could not resolve video ID in fallback: {e}")
-
-        logger.info(f"Fallback opening search results: {search_url}")
-        webbrowser.open(search_url)
-        return True, f"Searching for '{song_name}' on YouTube..."
+        return cls.play_in_existing_browser(song_name)
