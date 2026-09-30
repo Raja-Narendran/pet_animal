@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Distribution & Build
+build/
+dist/
+*.spec
+*.egg-info/
+
+# Pytest / Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs & Local User State
+*.log
+.pet_state.json
+
+# IDE
+.vscode/
+.idea/
