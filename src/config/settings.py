@@ -58,6 +58,12 @@ class Settings:
         "google": "https://www.google.com",
     })
     
+    # Search & YouTube Playback Settings
+    DEFAULT_SEARCH_ENGINE_URL: str = "https://www.google.com/search?q={query}"
+    YOUTUBE_SEARCH_URL: str = "https://www.youtube.com/results?search_query={query}"
+    YOUTUBE_WATCH_URL: str = "https://www.youtube.com/watch?v={video_id}"
+    YOUTUBE_SELENIUM_TIMEOUT_S: int = 10
+    
     # Common Windows executable paths for fallback search
     VSCODE_PATHS: List[str] = field(default_factory=lambda: [
         os.path.expandvars(r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe"),

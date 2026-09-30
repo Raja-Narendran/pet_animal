@@ -8,13 +8,14 @@ class HelpHandler(BaseCommandHandler):
 
     HELP_TEXT = (
         "Try:\n"
+        "• search <anything>\n"
+        "• play <song name>\n"
         "• open Chrome\n"
         "• open Notepad\n"
         "• open Calculator\n"
         "• open File Explorer\n"
         "• open VS Code\n"
-        "• open YouTube\n"
-        "• open Google"
+        "• open YouTube / Google"
     )
 
     def execute(self, command: Command) -> CommandResult:

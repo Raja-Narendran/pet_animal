@@ -18,6 +18,7 @@ from ..components.command_box import CommandBoxWidget
 from ..components.response import ResponseBubbleWidget
 from ..commands.parser import BaseCommandParser, RuleBasedCommandParser
 from ..commands.executor import CommandExecutor
+from ..commands.model import ActionType
 from ..config.settings import settings
 from ..utils.logger import get_logger
 
@@ -41,6 +42,7 @@ class PetWindow(QWidget):
         self._init_ui()
         self._init_tray_icon()
         self._load_position()
+        self._yt_worker = None
 
         logger.info("Application started. Pet companion loaded successfully.")
 
@@ -229,11 +231,35 @@ class PetWindow(QWidget):
         logger.info(f"Command parsed: action={command.action.value}, target='{command.target}'")
 
         # Execute command
+        if command.action == ActionType.PLAY_MUSIC and command.target.strip():
+            self.pet.set_state("working")
+            self.response_bubble.show_message(f"Finding '{command.target}' on YouTube...")
+            self.adjustSize()
+
+            from ..services.youtube_worker import YouTubePlayWorker
+            self._yt_worker = YouTubePlayWorker(command.target.strip(), parent=self)
+            self._yt_worker.playback_started.connect(self._on_youtube_playback_started)
+            self._yt_worker.playback_failed.connect(self._on_youtube_playback_failed)
+            self._yt_worker.start()
+            return
+
         result = self.executor.execute(command)
 
         # Show response and update pet state
         self.response_bubble.show_message(result.message)
         self.pet.set_state(result.pet_state, temporary_ms=3000)
+        self.adjustSize()
+
+    def _on_youtube_playback_started(self, message: str) -> None:
+        """Called when YouTube video is auto-clicked and starts playing."""
+        self.response_bubble.show_message(message)
+        self.pet.set_state("success", temporary_ms=4000)
+        self.adjustSize()
+
+    def _on_youtube_playback_failed(self, message: str) -> None:
+        """Called when YouTube playback encounters an error."""
+        self.response_bubble.show_message(message)
+        self.pet.set_state("error", temporary_ms=3000)
         self.adjustSize()
 
     def _on_voice_started(self) -> None:

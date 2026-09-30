@@ -147,6 +147,60 @@ class TestCommandParserHelpAndEmpty:
         assert cmd.action == ActionType.EMPTY
 
 
+class TestCommandParserSearch:
+    """Test web search commands."""
+
+    @pytest.mark.parametrize(
+        "phrase,expected_query",
+        [
+            ("search python tutorials", "python tutorials"),
+            ("search for quantum computing", "quantum computing"),
+            ("search on google recipe ideas", "recipe ideas"),
+            ("search google for best laptops", "best laptops"),
+            ("search google machine learning", "machine learning"),
+            ("google artificial intelligence", "artificial intelligence"),
+            ("look up weather today", "weather today"),
+            ("find good pizza places", "good pizza places"),
+        ],
+    )
+    def test_search_queries(self, parser, phrase, expected_query):
+        cmd = parser.parse(phrase)
+        assert cmd.action == ActionType.SEARCH_WEB
+        assert cmd.target == expected_query
+
+    @pytest.mark.parametrize("phrase", ["search", "search for", "look up", "find"])
+    def test_empty_search(self, parser, phrase):
+        cmd = parser.parse(phrase)
+        assert cmd.action == ActionType.SEARCH_WEB
+        assert cmd.target == ""
+
+
+class TestCommandParserPlayMusic:
+    """Test YouTube music and song commands."""
+
+    @pytest.mark.parametrize(
+        "phrase,expected_song",
+        [
+            ("play shape of you", "shape of you"),
+            ("play song despacito", "despacito"),
+            ("play music smooth jazz", "smooth jazz"),
+            ("play bohemian rhapsody on youtube", "bohemian rhapsody"),
+            ("play on youtube believer", "believer"),
+            ("youtube play faded", "faded"),
+        ],
+    )
+    def test_play_music_queries(self, parser, phrase, expected_song):
+        cmd = parser.parse(phrase)
+        assert cmd.action == ActionType.PLAY_MUSIC
+        assert cmd.target == expected_song
+
+    @pytest.mark.parametrize("phrase", ["play", "play song", "play music"])
+    def test_empty_play(self, parser, phrase):
+        cmd = parser.parse(phrase)
+        assert cmd.action == ActionType.PLAY_MUSIC
+        assert cmd.target == ""
+
+
 class TestCommandParserUnsupportedAndSecurity:
     """Ensure unsupported commands and potentially malicious strings do NOT resolve to arbitrary actions."""
 
@@ -170,3 +224,5 @@ class TestCommandParserUnsupportedAndSecurity:
         # Must not be an executable action
         assert cmd.action != ActionType.OPEN_APPLICATION
         assert cmd.action != ActionType.OPEN_URL
+        assert cmd.action != ActionType.SEARCH_WEB
+        assert cmd.action != ActionType.PLAY_MUSIC

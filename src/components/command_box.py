@@ -59,7 +59,7 @@ class CommandBoxWidget(QWidget):
 
         # Text input
         self.input_field = QLineEdit(self)
-        self.input_field.setPlaceholderText("What should I do? (e.g. open chrome)")
+        self.input_field.setPlaceholderText("Ask me anything... (e.g. search python, play song)")
         self.input_field.returnPressed.connect(self._handle_submit)
         
         font = QFont("Segoe UI", 10)
@@ -206,5 +206,5 @@ class CommandBoxWidget(QWidget):
 
     def _restore_placeholder(self) -> None:
         """Restores the default placeholder text."""
-        self.input_field.setPlaceholderText("What should I do? (e.g. open chrome)")
+        self.input_field.setPlaceholderText("Ask me anything... (e.g. search python, play song)")
 
