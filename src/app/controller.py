@@ -1,5 +1,5 @@
 """Owns the two native windows and coordinates their lifetime."""
-from PyQt6.QtCore import QObject, QTimer, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QAction
 from .pet_window import PetWindow
@@ -47,6 +47,8 @@ class ApplicationController(QObject):
         self.pet.close_application = self.quit
         self.pet.show_help = lambda: self.submit('help')
         self.pet.pet.drag_finished.connect(self.save_position)
+        self.pet.pet.pet_clicked.disconnect()
+        self.pet.pet.pet_clicked.connect(self.on_pet_clicked)
         self._appearance = None
         self.core.listeners.append(self.apply)
         self.manager = ManagerWindow(core, self)
@@ -103,14 +105,21 @@ class ApplicationController(QObject):
         self.pet.command_box.input_field.setFont(font)
         self.pet.command_box.update()
         self.pet.adjustSize()
+        self.pet._ensure_layout_width()
         if config['x'] is not None and config['y'] is not None:
             self.pet.move(config['x'], config['y'])
         self.pet._keep_on_screen()
         self.pet._update_pet_anchor()
         self.pet.tray_icon.setVisible(self.core.app_settings()['tray'])
 
+    def on_pet_clicked(self):
+        """User clicked the floating companion: greet and focus input without moving."""
+        self.pet.pet.set_state('greeting', temporary_ms=2500)
+        self.pet.command_box.focus_input()
+
     def save_position(self, _position=None):
         self.pet._keep_on_screen()
+        self.pet._update_pet_anchor()
         self.core.save_position(self.pet.x(), self.pet.y())
 
     def execute(self, phrase, parent=None):
@@ -141,18 +150,19 @@ class ApplicationController(QObject):
         if self._shutting_down:
             return
         result = self.core.finish_browser_action(action, success, message)
+        self._show_result(result)
+
+    def _show_result(self, result):
+        """Display results from typed, voice, and asynchronous browser commands."""
         self.pet.response_bubble.show_message(result['message'])
         self.pet.pet.set_state(result['pet_state'], temporary_ms=3000)
-        self.pet._reanchor_pet()
 
     def submit_voice(self, phrase):
         if self._shutting_down:
             return
         canonical = self.core.resolve_voice_phrase(phrase)
         result = self.execute(canonical)
-        self.pet.response_bubble.show_message(result['message'])
-        self.pet.pet.set_state(result['pet_state'], temporary_ms=3000)
-        self.pet._reanchor_pet()
+        self._show_result(result)
         # Retain failed transcription for correction instead of silently discarding it.
         self.pet.command_box.input_field.setText('' if result['success'] else phrase)
 
@@ -160,9 +170,7 @@ class ApplicationController(QObject):
         if self._shutting_down:
             return
         result = self.execute(phrase)
-        self.pet.response_bubble.show_message(result['message'])
-        self.pet.pet.set_state(result['pet_state'], temporary_ms=3000)
-        self.pet._reanchor_pet()
+        self._show_result(result)
 
     def show_manager(self, page=None):
         self.manager.show()

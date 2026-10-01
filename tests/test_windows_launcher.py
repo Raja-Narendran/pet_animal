@@ -1,5 +1,5 @@
 """Unit tests for WindowsLauncher security and dispatching."""
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pytest
 from src.services.windows_launcher import WindowsLauncher
 

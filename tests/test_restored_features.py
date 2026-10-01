@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from src.core.application import ApplicationCore
 from src.app.controller import ApplicationController
-from src.services.voice_input import VoiceInputWorker, SoundDeviceMicrophone
+from src.services.voice_input import SoundDeviceMicrophone
 from src.services.youtube_automation import YouTubeAutomationService
 
 

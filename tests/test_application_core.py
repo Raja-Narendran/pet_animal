@@ -4,7 +4,7 @@ import sqlite3
 import sys
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QMessageBox
 from src.core.application import ApplicationCore, DEFAULT_PET, normalize
 from src.app.controller import ApplicationController
 

@@ -12,7 +12,6 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
 from src.config.settings import settings
 from src.utils.logger import setup_logger
 from src.app.controller import ApplicationController

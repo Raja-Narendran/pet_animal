@@ -2,7 +2,6 @@
 import os
 import pytest
 from PyQt6.QtWidgets import QApplication, QSlider, QSpinBox, QDoubleSpinBox, QLineEdit, QLabel
-from PyQt6.QtCore import Qt
 from src.core.application import ApplicationCore, DEFAULT_PET
 from src.app.controller import ApplicationController
 from src.services.windows_launcher import BaseLauncher
@@ -142,7 +141,6 @@ def test_pet_studio_slider_value_labels_and_config(controller, qapp):
 
 def test_commands_table_row_selection_color(controller, qapp):
     from PyQt6.QtWidgets import QTableWidget
-    from src.app.manager_window import PALETTES
     manager = controller.manager
     manager.page = 'Commands'
     manager.refresh()

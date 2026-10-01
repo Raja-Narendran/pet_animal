@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PyQt6.QtCore import Qt, QTimer, QRectF, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QRectF, pyqtSignal, QPoint
 from ..config.settings import settings
 from ..utils.logger import get_logger
 
@@ -29,8 +29,15 @@ class ResponseBubbleWidget(QWidget):
     SHADOW_PADDING = 6
 
     def __init__(self, parent: Optional[QWidget] = None):
-        super().__init__(parent)
+        super().__init__(None)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._owner = parent
         self._init_ui()
 
         self.auto_hide_timer = QTimer(self)
@@ -65,6 +72,33 @@ class ResponseBubbleWidget(QWidget):
         layout.addWidget(self.label)
 
         self.hide()
+
+    def update_position(self, owner: Optional[QWidget] = None) -> None:
+        """Positions the floating bubble directly above the companion pet."""
+        target_win = owner or self._owner
+        if not target_win or not target_win.isVisible() or getattr(target_win, "pet_minimized", False):
+            return
+
+        pet_widget = getattr(target_win, "pet", None)
+        if pet_widget and pet_widget.isVisible():
+            pet_pos = pet_widget.mapToGlobal(QPoint(0, 0))
+            center_x = pet_pos.x() + (pet_widget.width() - self.width()) // 2
+            target_y = pet_pos.y() - self.height() - 6
+        else:
+            win_pos = target_win.mapToGlobal(QPoint(0, 0))
+            center_x = win_pos.x() + (target_win.width() - self.width()) // 2
+            target_y = win_pos.y() - self.height() - 6
+
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app:
+            screen = app.screenAt(QPoint(center_x, target_y)) or app.screenAt(target_win.pos()) or app.primaryScreen()
+            if screen:
+                geom = screen.availableGeometry()
+                center_x = max(geom.left() + 4, min(center_x, geom.right() - self.width() + 1 - 4))
+                target_y = max(geom.top() + 4, min(target_y, geom.bottom() - self.height() + 1 - 4))
+
+        self.move(center_x, target_y)
 
     def paintEvent(self, event) -> None:
         """Manually paints the rounded dark background and subtle shadow.
@@ -103,7 +137,9 @@ class ResponseBubbleWidget(QWidget):
         """Displays a message and schedules auto-hiding."""
         self.label.setText(message)
         self.adjustSize()
+        self.update_position()
         self.show()
+        self.raise_()
         self.bubble_shown.emit()
         logger.debug("Response bubble displayed")
 

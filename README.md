@@ -119,3 +119,5 @@ Tamil and English can be mixed in voice commands, for example:
 Recognition automatically detects the spoken language and transcribes it without translation. English brand/song names can remain in English or use the explicit Tamil aliases. Command matching supports the documented Tamil/Tanglish verbs rather than arbitrary natural-language requests. The waveform follows live microphone audio; the bar shows **Recognizing…** during local processing, which can take several seconds on CPU. Cancel suppresses late results. Typed matching and disabled/custom-command precedence remain unchanged.
 
 The multilingual model is pinned to a verified [faster-whisper small revision](https://huggingface.co/Systran/faster-whisper-small/tree/536b0662742c02347bc0e980a01041f333bce120). Setup downloads about 486 MB; listening never accesses the model hub or uploads audio. The legacy English Vosk path remains available to developers with `VOICE_MULTILINGUAL=False`.
+
+See [docs/structure-audit.md](docs/structure-audit.md) for the file tree, entry points, dependency audit, cleanup decisions and current packaging gaps.

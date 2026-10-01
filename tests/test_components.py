@@ -2,11 +2,9 @@
 import os
 import pytest
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtCore import QPoint
 from src.components.command_box import CommandBoxWidget
 from src.components.response import ResponseBubbleWidget
-from src.components.pet import PetWidget
 from src.app.pet_window import PetWindow
 from src.commands.parser import RuleBasedCommandParser
 from src.commands.executor import CommandExecutor
@@ -247,10 +245,72 @@ def test_pet_maintains_constant_position_on_command_box_toggle(qapp):
         win.toggle_command_box()
         qapp.processEvents()
         assert win.command_box.isVisible()
-        assert win.pet.mapToGlobal(QPoint(0, 0)) == initial_pos
     finally:
         win.tray_icon.hide()
         win.close()
+
+
+def test_pet_window_does_not_move_up_on_command_execution(qapp):
+    win = PetWindow()
+    try:
+        win.show()
+        qapp.processEvents()
+        initial_win_pos = win.pos()
+        initial_pet_pos = win.pet.mapToGlobal(QPoint(0, 0))
+
+        # Show message - window and pet must NOT move up
+        win.response_bubble.show_message("Executing command...")
+        qapp.processEvents()
+        assert win.pos() == initial_win_pos
+        assert win.pet.mapToGlobal(QPoint(0, 0)) == initial_pet_pos
+
+        # Hide message - window and pet must remain in constant position
+        win.response_bubble.hide()
+        qapp.processEvents()
+        assert win.pos() == initial_win_pos
+        assert win.pet.mapToGlobal(QPoint(0, 0)) == initial_pet_pos
+    finally:
+        win.tray_icon.hide()
+        win.close()
+
+
+def test_controller_pet_click_maintains_constant_position(qapp, tmp_path):
+    from src.core.application import ApplicationCore
+    from src.app.controller import ApplicationController
+
+    core = ApplicationCore(tmp_path)
+    ctrl = ApplicationController(core)
+    try:
+        ctrl.pet.show()
+        qapp.processEvents()
+        initial_win_pos = ctrl.pet.pos()
+        initial_pet_pos = ctrl.pet.pet.mapToGlobal(QPoint(0, 0))
+        assert ctrl.pet.command_box.isVisible()
+
+        # Click the pet
+        ctrl.pet.pet.pet_clicked.emit()
+        qapp.processEvents()
+
+        # Command box stays visible, window and pet do not move
+        assert ctrl.pet.command_box.isVisible()
+        assert ctrl.pet.pos() == initial_win_pos
+        assert ctrl.pet.pet.mapToGlobal(QPoint(0, 0)) == initial_pet_pos
+
+        # Submit a command
+        ctrl.submit("help")
+        qapp.processEvents()
+        assert ctrl.pet.pos() == initial_win_pos
+        assert ctrl.pet.pet.mapToGlobal(QPoint(0, 0)) == initial_pet_pos
+
+        # Hide bubble
+        ctrl.pet.response_bubble.hide()
+        qapp.processEvents()
+        assert ctrl.pet.pos() == initial_win_pos
+        assert ctrl.pet.pet.mapToGlobal(QPoint(0, 0)) == initial_pet_pos
+    finally:
+        ctrl.pet.tray_icon.hide()
+        ctrl.pet.close()
+        ctrl.manager.close()
 
 
 
