@@ -31,7 +31,7 @@ def text(value, label, limit=1000):
 
 DEFAULT_PET = dict(size=240, x=None, y=None, always_on_top=True, animations=True,
                    chat_width=320, text_size=13, background='#18181b', radius=20, opacity=0.94)
-DEFAULT_APP = dict(launch_pet=True, start_minimized=False, tray=True, notifications=True, theme='light', page='Dashboard')
+DEFAULT_APP = dict(launch_pet=True, start_minimized=False, tray=True, notifications=True, theme='light', page='Dashboard', voice_mode='english')
 
 
 class ApplicationCore:
@@ -451,17 +451,27 @@ class ApplicationCore:
 
     @staticmethod
     def validate_settings(config):
-        if not isinstance(config, dict) or set(config) != set(DEFAULT_APP):
+        if not isinstance(config, dict):
+            raise ValueError('Invalid application settings.')
+        if 'voice_mode' not in config:
+            config = dict(config, voice_mode='english')
+        if set(config) != set(DEFAULT_APP):
             raise ValueError('Invalid application settings.')
         for key in ('launch_pet', 'start_minimized', 'tray', 'notifications'):
             if type(config[key]) is not bool:
                 raise ValueError('Invalid setting: ' + key)
         if config['theme'] not in ('light', 'dark') or config['page'] not in ('Dashboard', 'Memory', 'Commands', 'Pet Studio', 'Activity', 'Settings'):
             raise ValueError('Invalid theme or page.')
+        if config.get('voice_mode') not in ('english', 'multilingual'):
+            raise ValueError('Invalid voice mode.')
         if config['start_minimized'] and not config['tray']:
             raise ValueError('Start minimized requires the system tray.')
 
     def save_settings(self, config):
+        if not isinstance(config, dict):
+            raise ValueError('Invalid application settings.')
+        if 'voice_mode' not in config:
+            config = dict(config, voice_mode='english')
         self.validate_settings(config)
         with self.db:
             for key, value in config.items():
@@ -474,7 +484,10 @@ class ApplicationCore:
     def import_configuration(self, payload):
         if not isinstance(payload, dict) or payload.get('version') != 1:
             raise ValueError('Invalid configuration export.')
-        self.validate_settings(payload.get('settings'))
+        settings_payload = dict(payload.get('settings') or {})
+        if 'voice_mode' not in settings_payload:
+            settings_payload['voice_mode'] = 'english'
+        self.validate_settings(settings_payload)
         commands, profiles = payload.get('commands'), payload.get('profiles')
         if not isinstance(commands, list) or not isinstance(profiles, list) or len(commands) > 500 or not 1 <= len(profiles) <= 100:
             raise ValueError('Invalid configuration records.')

@@ -55,6 +55,14 @@ except (ImportError, OSError):
     np = webrtcvad = WhisperModel = None
     _MULTILINGUAL_AVAILABLE = False
 
+def is_speech_available():
+    if not (_SR_AVAILABLE and _SD_AVAILABLE):
+        return False
+    if settings.VOICE_MULTILINGUAL:
+        return _MULTILINGUAL_AVAILABLE and settings.VOICE_MULTILINGUAL_MODEL_DIR.is_dir()
+    return _VOSK_AVAILABLE and settings.VOICE_MODEL_DIR.is_dir()
+
+
 SPEECH_AVAILABLE = _SR_AVAILABLE and _SD_AVAILABLE and (
     (_MULTILINGUAL_AVAILABLE and settings.VOICE_MULTILINGUAL_MODEL_DIR.is_dir())
     if settings.VOICE_MULTILINGUAL else (_VOSK_AVAILABLE and settings.VOICE_MODEL_DIR.is_dir()))
@@ -62,6 +70,19 @@ _multilingual_model = None
 _multilingual_lock = threading.Lock()
 _model = None
 _model_lock = threading.Lock()
+
+
+def warmup_models_async():
+    """Asynchronously pre-warms the currently active speech model in a daemon thread."""
+    def _warm():
+        try:
+            if settings.VOICE_MULTILINGUAL:
+                get_multilingual_model()
+            else:
+                get_voice_model()
+        except Exception:
+            pass
+    threading.Thread(target=_warm, daemon=True).start()
 
 
 def get_voice_model():
@@ -110,7 +131,7 @@ class SpeechEndpoint:
     """VAD counts complete 20 ms frames; a one-second gap cannot submit speech."""
     def __init__(self, silence_seconds=1.5):
         self.vad = webrtcvad.Vad(2)
-        self.silence_frames = math.ceil(max(1.5, silence_seconds) / .02)
+        self.silence_frames = math.ceil(max(0.4, silence_seconds) / .02)
         self.pending = bytearray()
         self.started = False
         self.voiced_frames = 0
@@ -135,13 +156,14 @@ class SpeechEndpoint:
         return False
 
 
-def transcribe_multilingual(data, sample_rate, cancelled=lambda: False):
+def transcribe_multilingual(data, sample_rate, cancelled=lambda: False, beam_size=None):
     if cancelled():
         raise InterruptedError()
+    beam = beam_size if beam_size is not None else getattr(settings, 'VOICE_BEAM_SIZE', 1)
     audio = resample_pcm(data, sample_rate).astype(np.float32) / 32768
     segments, _ = get_multilingual_model().transcribe(
-        audio, language=None, task='transcribe', beam_size=5, temperature=0,
-        condition_on_previous_text=False, vad_filter=False,
+        audio, language=None, task='transcribe', beam_size=beam, temperature=0,
+        condition_on_previous_text=False, vad_filter=False, without_timestamps=True,
         initial_prompt='Chrome, Google, YouTube, Notepad, Shape of You. '
                        'தமிழ் மற்றும் English கலந்து பேசும் commands: open பண்ணு, play பண்ணு, பாட்டு போடு, தேடு.')
     words = []
@@ -345,7 +367,7 @@ class VoiceInputWorker(QThread):
 
     def run(self):
         try:
-            if not SPEECH_AVAILABLE:
+            if not is_speech_available() or not SPEECH_AVAILABLE:
                 self.error_occurred.emit('Local speech recognition is not available. Check the bundled model and microphone dependencies.')
                 return
             if settings.VOICE_MULTILINGUAL:

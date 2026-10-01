@@ -44,7 +44,8 @@ class Settings:
     VOICE_ENABLED: bool = True          # Master switch for voice input feature
     VOICE_TIMEOUT_S: int = 5            # Seconds to wait for speech to start
     VOICE_PHRASE_LIMIT_S: int = 60      # Safety limit; never execute a truncated phrase
-    VOICE_MULTILINGUAL: bool = True     # Tamil, English, and mixed speech; local Whisper
+    VOICE_MULTILINGUAL: bool = False    # False: Fast English (Vosk Streaming); True: Multilingual (Whisper)
+    VOICE_BEAM_SIZE: int = 1            # Greedy search for fast decoding
     VOICE_SILENCE_S: float = 1.5        # Minimum final silence before recognition
     VOICE_MULTILINGUAL_MODEL_DIR: Path = field(default_factory=lambda: _get_base_dir() / 'assets/speech/whisper-small')
     VOICE_MODEL_DIR: Path = field(default_factory=lambda: _get_base_dir() / 'assets/speech/vosk-model-small-en-us-0.15')

@@ -5,6 +5,7 @@ from PyQt6.QtGui import QAction
 from .pet_window import PetWindow
 from .manager_window import ManagerWindow
 from ..utils.sprite import SpriteManager
+from ..config.settings import settings
 
 
 class BrowserWorker(QThread):
@@ -110,7 +111,9 @@ class ApplicationController(QObject):
             self.pet.move(config['x'], config['y'])
         self.pet._keep_on_screen()
         self.pet._update_pet_anchor()
-        self.pet.tray_icon.setVisible(self.core.app_settings()['tray'])
+        app_settings = self.core.app_settings()
+        self.pet.tray_icon.setVisible(app_settings['tray'])
+        settings.VOICE_MULTILINGUAL = (app_settings.get('voice_mode') == 'multilingual')
 
     def on_pet_clicked(self):
         """User clicked the floating companion: greet and focus input without moving."""

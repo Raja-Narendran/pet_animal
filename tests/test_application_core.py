@@ -305,3 +305,40 @@ def test_controller_pet_minimize_and_restore(core, qapp, monkeypatch):
         app.manager.hide()
         qapp.aboutToQuit.disconnect(app.shutdown)
 
+
+def test_voice_mode_settings_toggle_and_validation(core, qapp, monkeypatch):
+    from src.config.settings import settings
+    monkeypatch.setattr(settings, 'STATE_FILE', core.root / 'state.json')
+    app = ApplicationController(core)
+    try:
+        # Default is english -> VOICE_MULTILINGUAL is False (Vosk streaming)
+        assert core.app_settings()['voice_mode'] == 'english'
+        assert settings.VOICE_MULTILINGUAL is False
+
+        # Switch to multilingual -> Whisper
+        cfg = core.app_settings()
+        cfg['voice_mode'] = 'multilingual'
+        core.save_settings(cfg)
+        assert settings.VOICE_MULTILINGUAL is True
+
+        # Switch back to english -> Vosk
+        cfg['voice_mode'] = 'english'
+        core.save_settings(cfg)
+        assert settings.VOICE_MULTILINGUAL is False
+
+        # Invalid voice_mode raises ValueError
+        with pytest.raises(ValueError, match='Invalid voice mode'):
+            core.save_settings(dict(cfg, voice_mode='invalid_mode'))
+
+        # Legacy config without voice_mode is accepted and defaults to english
+        legacy = dict(cfg)
+        del legacy['voice_mode']
+        core.validate_settings(legacy)
+    finally:
+        core.listeners.clear()
+        app.pet.tray_icon.hide()
+        app.pet.hide()
+        app.manager.hide()
+        qapp.aboutToQuit.disconnect(app.shutdown)
+
+
