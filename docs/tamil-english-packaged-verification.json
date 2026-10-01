@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "version": "2.0.0",
+  "checks": [
+    "SQLite migration",
+    "memory persistence",
+    "backup restore",
+    "six Manager pages",
+    "live profile switching",
+    "independent Manager closing",
+    "offline English and Tamil engines, models, native decoder, and voice command routing",
+    "quit cleanup"
+  ]
+}

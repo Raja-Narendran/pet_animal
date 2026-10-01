@@ -91,10 +91,22 @@ def run_self_test(app):
             controller.manager.close()
             app.processEvents()
             assert controller.pet.isVisible() and not controller.manager.isVisible()
-            assert not controller.pet.command_box.voice_button.isVisible()
+            assert not controller.pet.command_box.voice_button.isHidden()
+            from src.services.voice_input import SPEECH_AVAILABLE
+            assert SPEECH_AVAILABLE, 'Local speech engine or audio capture dependency is unavailable.'
+            from src.services.voice_input import create_recognizer
+            recognizer = create_recognizer()
+            recognizer.AcceptWaveform(bytes(32000))
+            assert 'text' in json.loads(recognizer.FinalResult())
+            from src.services.voice_input import get_multilingual_model, SpeechEndpoint, transcribe_multilingual
+            assert get_multilingual_model().model.is_multilingual
+            assert isinstance(transcribe_multilingual(bytes(32000), 16000), str)
+            assert not SpeechEndpoint().feed(bytes(640), 16000)
+            assert core.resolve_voice_phrase('Shape of You பாட்டு play பண்ணு') == 'play shape of you'
+            assert core.resolve_voice_phrase('Chrome open பண்ணு') == 'open chrome'
             controller.quit()
             assert not controller.pet.tray_icon.isVisible()
-            result.update(success=True, checks=['SQLite migration', 'memory persistence', 'backup restore', 'six Manager pages', 'live profile switching', 'independent Manager closing', 'voice disabled', 'quit cleanup'])
+            result.update(success=True, checks=['SQLite migration', 'memory persistence', 'backup restore', 'six Manager pages', 'live profile switching', 'independent Manager closing', 'offline English and Tamil engines, models, native decoder, and voice command routing', 'quit cleanup'])
         except Exception as error:
             result['error'] = str(error)
         finally:

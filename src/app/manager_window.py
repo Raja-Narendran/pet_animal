@@ -4,21 +4,20 @@ import re
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QIcon, QDesktopServices
-from PyQt6.QtCore import QUrl
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QPushButton, QListWidget, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QLineEdit, QComboBox, QDialog, QFormLayout,
     QLayout, QDialogButtonBox, QTextEdit, QCheckBox, QSpinBox, QDoubleSpinBox, QFileDialog,
-    QMessageBox, QInputDialog, QProgressBar)
+    QMessageBox, QInputDialog, QProgressBar, QSlider)
 from ..core.application import DEFAULT_PET, identifier
 from ..config.settings import settings
 from ..utils.sprite import SpriteManager
 
 
 PALETTES = {
-    'light': dict(background='#F7F9FC', surface='#FFFFFF', text='#1F2937', muted='#64748B', border='#E2E8F0'),
-    'dark': dict(background='#111827', surface='#1F2937', text='#F7F9FC', muted='#A6B5C9', border='#374151'),
+    'light': dict(background='#F7F9FC', surface='#FFFFFF', text='#1F2937', muted='#64748B', border='#E2E8F0', selection='#D1D5DB'),
+    'dark': dict(background='#111827', surface='#1F2937', text='#F7F9FC', muted='#A6B5C9', border='#374151', selection='#4B5563'),
 }
 PAGES = ['Dashboard', 'Memory', 'Commands', 'Pet Studio', 'Activity', 'Settings']
 
@@ -37,7 +36,8 @@ def button(title, callback, primary=False, icon=None):
     item.setMinimumHeight(40)
     item.setObjectName('primary' if primary else '')
     if icon:
-        item.setIcon(QIcon(str(settings.BASE_DIR / 'assets/ui' / (icon + '.svg'))))
+        icon_path = settings.BASE_DIR / 'assets/ui' / (icon + ('-white' if primary and (settings.BASE_DIR / 'assets/ui' / f'{icon}-white.svg').exists() else '') + '.svg')
+        item.setIcon(QIcon(str(icon_path)))
         item.setIconSize(QSize(16, 16))
     item.clicked.connect(callback)
     return item
@@ -72,9 +72,7 @@ class ManagerWindow(QMainWindow):
         self.navigation.addItems(PAGES)
         self.navigation.currentRowChanged.connect(self.navigate)
         nav.addWidget(self.navigation)
-        nav.addWidget(label('LOCAL FIRST\nYour data stays on this PC', 'muted'))
         nav.addWidget(button('Open floating pet', self.controller.show_pet, True))
-        nav.addWidget(button('Quit application', self.controller.quit))
         shell.addWidget(sidebar)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -122,10 +120,16 @@ class ManagerWindow(QMainWindow):
             QListWidget {background:transparent; border:0; outline:0;}
             QListWidget::item {padding:14px; border-radius:10px; margin-bottom:6px;}
             QListWidget::item:selected {background:#3368A0; color:white;}
-            QTableWidget {background:%(surface)s; border:1px solid %(border)s; border-radius:12px; gridline-color:%(border)s;}
+            QTableWidget {background:%(surface)s; border:1px solid %(border)s; border-radius:12px; gridline-color:%(border)s; outline:0; selection-background-color:%(selection)s; selection-color:%(text)s;}
+            QTableWidget::item:selected, QTableWidget::item:selected:!active {background:%(selection)s; color:%(text)s;}
             QHeaderView::section {background:%(background)s; color:%(muted)s; border:0; padding:12px; font-weight:600;}
             QProgressBar {background:%(background)s; border:0; border-radius:3px; height:6px;}
             QProgressBar::chunk {background:#3368A0; border-radius:3px;}
+            QSlider {background: transparent;}
+            QSlider::groove:horizontal {height: 6px; background: %(border)s; border-radius: 3px;}
+            QSlider::sub-page:horizontal {background: #3368A0; border-radius: 3px;}
+            QSlider::handle:horizontal {background: #3368A0; border: 2px solid %(surface)s; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px;}
+            QSlider::handle:horizontal:hover {background: #66A3BF;}
         ''' % palette)
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
@@ -189,7 +193,7 @@ class ManagerWindow(QMainWindow):
         memory = self.core.get_memory_by_key('user.name')
         greeting = 'Welcome back' + (', ' + memory['memory_value'] if memory and not memory['sensitive'] else '')
         self.heading(greeting, 'A little companion. A more personal workspace.', [
-            button('Add memory', self.edit_memory, icon='plus'),
+            button('Add memory', self.edit_memory, icon='brain'),
             button('New command', self.edit_command, True, 'zap')])
         stats = self.core.stats()
         metrics = QWidget()
@@ -239,14 +243,9 @@ class ManagerWindow(QMainWindow):
             layout.addWidget(progress)
         layout.addWidget(button('Open memory', lambda: self.navigation.setCurrentRow(1), icon='arrow-right'))
         self.content_layout.addWidget(frame)
-        frame, layout = self.card('Quick actions')
-        layout.addWidget(button('Manage command phrases', lambda: self.navigation.setCurrentRow(2), icon='command'))
-        layout.addWidget(button('Customize your companion', lambda: self.navigation.setCurrentRow(3), icon='sparkles'))
-        layout.addWidget(button('Save a memory', self.edit_memory, icon='brain'))
-        self.content_layout.addWidget(frame)
 
     def page_memory(self):
-        self.heading('Long-term memory', 'Structured information, saved locally. Sensitive values use Windows user encryption.', [button('Add memory', self.edit_memory, True, 'plus')])
+        self.heading('Long-term memory', 'Structured information, saved locally. Sensitive values use Windows user encryption.', [button('Add memory', self.edit_memory, True, 'brain')])
         bar = QWidget()
         row = QHBoxLayout(bar)
         search = QLineEdit(self.memory_query)
@@ -410,17 +409,12 @@ class ManagerWindow(QMainWindow):
             assets.addItem(asset['name'], asset['id'])
         name = QLineEdit()
         controls = {}
-        for key, low, high in [('size', 96, 400), ('x', -100000, 100000), ('y', -100000, 100000), ('chat_width', 260, 600), ('text_size', 10, 24), ('radius', 0, 30)]:
-            field = QSpinBox()
-            field.setRange(low, high)
-            controls[key] = field
+        for key, low, high in [('size', 96, 400), ('chat_width', 260, 600), ('text_size', 10, 24)]:
+            slider = QSlider(Qt.Orientation.Horizontal)
+            slider.setRange(low, high)
+            controls[key] = slider
         for key in ('always_on_top', 'animations'):
             controls[key] = QCheckBox()
-        opacity = QDoubleSpinBox()
-        opacity.setRange(.2, 1)
-        opacity.setSingleStep(.05)
-        controls['opacity'] = opacity
-        controls['background'] = QLineEdit()
         preview = QLabel()
         preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         preview.setMinimumHeight(180)
@@ -431,45 +425,72 @@ class ManagerWindow(QMainWindow):
             pix = QPixmap(str(self.core.asset_path(assets.currentData())))
             size = min(200, controls['size'].value())
             preview.setPixmap(pix.copy(0, 0, pix.height(), pix.height()).scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation))
-            color = QColor(controls['background'].text())
-            if color.isValid():
-                color.setAlphaF(opacity.value())
-                chat_preview.setStyleSheet(f'background:rgba({color.red()},{color.green()},{color.blue()},{color.alpha()}); color:white; border-radius:{controls["radius"].value()}px; padding:12px; font-size:{controls["text_size"].value()}px;')
-                chat_preview.setMaximumWidth(controls['chat_width'].value())
+            color = QColor(DEFAULT_PET['background'])
+            color.setAlphaF(DEFAULT_PET['opacity'])
+            chat_preview.setStyleSheet(f'background:rgba({color.red()},{color.green()},{color.blue()},{color.alpha()}); color:white; border-radius:{DEFAULT_PET["radius"]}px; padding:12px; font-size:{controls["text_size"].value()}px;')
+            chat_preview.setMaximumWidth(controls['chat_width'].value())
         def load_profile():
             record = next(r for r in records if r['id'] == profiles.currentData())
             name.setText(record['name'])
             assets.setCurrentIndex(assets.findData(record['selected_asset_id']))
             for key, field in controls.items():
-                value = record['config'][key]
+                value = record['config'].get(key, DEFAULT_PET.get(key))
                 if isinstance(field, QCheckBox):
-                    field.setChecked(value)
-                elif isinstance(field, QLineEdit):
-                    field.setText(value)
-                else:
-                    field.setValue(value if value is not None else getattr(self.controller.pet, key)())
+                    field.setChecked(bool(value))
+                elif isinstance(field, QSlider):
+                    field.setValue(int(value))
             preview_update()
         form.addRow('Profile', profiles)
         form.addRow('Pet name', name)
         form.addRow('Pet image', assets)
-        for key, field in controls.items():
-            form.addRow(key.replace('_', ' ').title(), field)
+        for key in ('size', 'chat_width', 'text_size'):
+            slider = controls[key]
+            val_label = QLabel(str(slider.value()))
+            val_label.setFixedWidth(36)
+            val_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            slider.valueChanged.connect(lambda val, lbl=val_label: lbl.setText(str(val)))
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(10)
+            row_layout.addWidget(slider, 1)
+            row_layout.addWidget(val_label)
+            form.addRow(key.replace('_', ' ').title(), row_widget)
+        for key in ('always_on_top', 'animations'):
+            form.addRow(key.replace('_', ' ').title(), controls[key])
         load_profile()
         profiles.currentIndexChanged.connect(load_profile)
         assets.currentIndexChanged.connect(preview_update)
         for field in controls.values():
             if isinstance(field, QCheckBox):
                 field.toggled.connect(preview_update)
-            elif isinstance(field, QLineEdit):
-                field.textChanged.connect(preview_update)
             else:
                 field.valueChanged.connect(preview_update)
         layout.addWidget(preview)
         layout.addWidget(chat_preview, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addLayout(form)
-        def config():
-            return {key: field.isChecked() if isinstance(field, QCheckBox) else field.text() if isinstance(field, QLineEdit) else field.value() for key, field in controls.items()}
-        layout.addWidget(button('Save & activate profile', lambda: self.guard(lambda: self.core.save_profile(name.text(), assets.currentData(), config(), profiles.currentData())), True))
+        def config(existing_id=None):
+            active_coords = None
+            if existing_id:
+                try:
+                    current_rec = next((r for r in self.core.profiles() if r['id'] == existing_id), None)
+                    if current_rec:
+                        active_coords = (current_rec['config'].get('x'), current_rec['config'].get('y'))
+                except Exception:
+                    pass
+            return {
+                'size': controls['size'].value(),
+                'chat_width': controls['chat_width'].value(),
+                'text_size': controls['text_size'].value(),
+                'always_on_top': controls['always_on_top'].isChecked(),
+                'animations': controls['animations'].isChecked(),
+                'radius': DEFAULT_PET['radius'],
+                'background': DEFAULT_PET['background'],
+                'opacity': DEFAULT_PET['opacity'],
+                'x': active_coords[0] if active_coords else DEFAULT_PET['x'],
+                'y': active_coords[1] if active_coords else DEFAULT_PET['y'],
+            }
+        layout.addWidget(button('Save & activate profile', lambda: self.guard(lambda: self.core.save_profile(name.text(), assets.currentData(), config(profiles.currentData()), profiles.currentData())), True))
         layout.addWidget(button('Save as new profile', lambda: self.guard(lambda: self.core.save_profile(name.text(), assets.currentData(), config()))))
         layout.addWidget(label('Size presets: Small 128 · Medium 240 · Large 320. Dragging saves the position automatically.', 'muted'))
         self.content_layout.addWidget(frame)
@@ -515,18 +536,12 @@ class ManagerWindow(QMainWindow):
         frame, layout = self.card('General')
         form = QFormLayout()
         config = self.core.app_settings()
-        fields = {}
-        for key, title in [('launch_pet', 'Show floating pet when Pet Animal starts'), ('start_minimized', 'Start Manager minimized'), ('tray', 'Enable system tray'), ('notifications', 'Desktop notifications')]:
-            field = QCheckBox(title)
-            field.setChecked(config[key])
-            fields[key] = field
-            form.addRow(field)
         theme = QComboBox()
         theme.addItems(['light', 'dark'])
         theme.setCurrentText(config['theme'])
         form.addRow('Theme', theme)
         layout.addLayout(form)
-        layout.addWidget(button('Save preferences', lambda: self.guard(lambda: self.core.save_settings(dict(config, theme=theme.currentText(), **{key: field.isChecked() for key, field in fields.items()}))), True))
+        layout.addWidget(button('Save preferences', lambda: self.guard(lambda: self.core.save_settings(dict(config, theme=theme.currentText()))), True))
         layout.addWidget(label('Default profile, size and animation preferences are managed in Pet Studio.', 'muted'))
         self.content_layout.addWidget(frame)
         frame, layout = self.card('Data')
@@ -537,16 +552,6 @@ class ManagerWindow(QMainWindow):
         layout.addWidget(button('Restore database backup', self.restore_backup))
         layout.addWidget(button('Clear command history', lambda: self.confirm('Clear history', 'Permanently clear command history?', self.core.clear_history)))
         layout.addWidget(label('Imports are validated and do not overwrite matching records. Configuration imports switch the active profile and preferences. Restore creates a recovery snapshot first. Imported pet images must remain in the pets folder; encrypted backups require this Windows user.', 'muted'))
-        self.content_layout.addWidget(frame)
-        frame, layout = self.card('Application')
-        layout.addWidget(label('Pet Animal ' + settings.VERSION + ' · Native PyQt6 / SQLite'))
-        location = label(str(self.core.root), 'muted')
-        location.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(location)
-        layout.addWidget(button('Open log directory', lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.core.root / 'logs')))))
-        layout.addWidget(button('Show floating pet', self.controller.show_pet))
-        layout.addWidget(button('Hide floating pet', self.controller.hide_pet))
-        layout.addWidget(button('Quit application', self.controller.quit))
         self.content_layout.addWidget(frame)
 
     def export_json(self, payload, filename):

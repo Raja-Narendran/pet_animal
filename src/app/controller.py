@@ -1,5 +1,5 @@
 """Owns the two native windows and coordinates their lifetime."""
-from PyQt6.QtCore import QObject, QTimer, Qt
+from PyQt6.QtCore import QObject, QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QAction
 from .pet_window import PetWindow
@@ -7,21 +7,43 @@ from .manager_window import ManagerWindow
 from ..utils.sprite import SpriteManager
 
 
+class BrowserWorker(QThread):
+    completed = pyqtSignal(bool, str)
+
+    def __init__(self, launcher, action, target, parent):
+        super().__init__(parent)
+        self.launcher, self.action, self.target = launcher, action, target
+
+    def run(self):
+        try:
+            handler = self.launcher.search_web if self.action == 'search' else self.launcher.play_youtube
+            success, message = handler(self.target)
+        except Exception:
+            success, message = False, 'The browser action could not be executed.'
+        self.completed.emit(success, message)
+
+
 class ApplicationController(QObject):
     def __init__(self, core, parent=None):
         super().__init__(parent)
         self.core = core
+        self._browser_workers = set()
+        self._shutting_down = False
         self.pet = PetWindow()
         self.pet.command_box.command_submitted.disconnect()
         self.pet.command_box.command_submitted.connect(self.submit)
-        self.pet.command_box.voice_button.hide()
-        self.pet.command_box.input_field.setPlaceholderText('Type a registered command…')
+        self.pet.command_box.voice_command_submitted.disconnect()
+        self.pet.command_box.voice_command_submitted.connect(self.submit_voice)
+        self.pet.command_box.input_field.setPlaceholderText('Hi!!')
         self.pet.command_box.input_field.setMaxLength(500)
         self.pet.close_btn.clicked.disconnect()
         self.pet.close_btn.clicked.connect(self.hide_pet)
         self.pet.close_btn.setToolTip('Hide floating pet')
         self.pet.min_btn.clicked.disconnect()
-        self.pet.min_btn.clicked.connect(self.hide_pet)
+        self.pet.min_btn.clicked.connect(self.minimize_pet)
+        self.pet.min_btn.setToolTip('Minimize pet (keep chat box)')
+        self.pet.command_box.expand_clicked.connect(self.restore_pet)
+        self.pet.command_box.drag_finished.connect(self.save_position)
         self.pet.close_application = self.quit
         self.pet.show_help = lambda: self.submit('help')
         self.pet.pet.drag_finished.connect(self.save_position)
@@ -84,6 +106,7 @@ class ApplicationController(QObject):
         if config['x'] is not None and config['y'] is not None:
             self.pet.move(config['x'], config['y'])
         self.pet._keep_on_screen()
+        self.pet._update_pet_anchor()
         self.pet.tray_icon.setVisible(self.core.app_settings()['tray'])
 
     def save_position(self, _position=None):
@@ -91,7 +114,13 @@ class ApplicationController(QObject):
         self.core.save_position(self.pet.x(), self.pet.y())
 
     def execute(self, phrase, parent=None):
-        result = self.core.execute(phrase)
+        result = self.core.execute(phrase, defer_browser=True)
+        if 'browser_action' in result:
+            worker = BrowserWorker(self.core.launcher, result['browser_action'], result['browser_target'], self)
+            self._browser_workers.add(worker)
+            worker.completed.connect(lambda success, message, action=worker.action: self._browser_completed(action, success, message))
+            worker.finished.connect(lambda: self._release_browser_worker(worker))
+            worker.start()
         if 'confirmation' in result:
             value = result['confirmation']
             if QMessageBox.question(parent or self.pet, 'Confirm memory', result['message'], QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
@@ -104,11 +133,36 @@ class ApplicationController(QObject):
                 result = dict(success=False, message='Memory was not changed.', pet_state='idle')
         return result
 
+    def _release_browser_worker(self, worker):
+        self._browser_workers.discard(worker)
+        worker.deleteLater()
+
+    def _browser_completed(self, action, success, message):
+        if self._shutting_down:
+            return
+        result = self.core.finish_browser_action(action, success, message)
+        self.pet.response_bubble.show_message(result['message'])
+        self.pet.pet.set_state(result['pet_state'], temporary_ms=3000)
+        self.pet._reanchor_pet()
+
+    def submit_voice(self, phrase):
+        if self._shutting_down:
+            return
+        canonical = self.core.resolve_voice_phrase(phrase)
+        result = self.execute(canonical)
+        self.pet.response_bubble.show_message(result['message'])
+        self.pet.pet.set_state(result['pet_state'], temporary_ms=3000)
+        self.pet._reanchor_pet()
+        # Retain failed transcription for correction instead of silently discarding it.
+        self.pet.command_box.input_field.setText('' if result['success'] else phrase)
+
     def submit(self, phrase):
+        if self._shutting_down:
+            return
         result = self.execute(phrase)
         self.pet.response_bubble.show_message(result['message'])
         self.pet.pet.set_state(result['pet_state'], temporary_ms=3000)
-        self.pet.adjustSize()
+        self.pet._reanchor_pet()
 
     def show_manager(self, page=None):
         self.manager.show()
@@ -119,8 +173,20 @@ class ApplicationController(QObject):
             self.manager.navigation.setCurrentRow(PAGES.index(page))
 
     def show_pet(self):
+        if getattr(self.pet, 'pet_minimized', False):
+            self.pet.restore_pet()
         self.pet.show()
         self.pet.raise_()
+        self.manager.refresh()
+
+    def minimize_pet(self):
+        self.save_position()
+        self.pet.minimize_pet()
+        self.manager.refresh()
+
+    def restore_pet(self):
+        self.pet.restore_pet()
+        self.save_position()
         self.manager.refresh()
 
     def hide_pet(self):
@@ -139,6 +205,16 @@ class ApplicationController(QObject):
         QApplication.instance().quit()
 
     def shutdown(self):
+        if self._shutting_down:
+            return
+        self._shutting_down = True
         self.pet.pet.anim_timer.stop()
         self.pet.tray_icon.hide()
+        voice_worker = self.pet.command_box._voice_worker
+        if voice_worker and voice_worker.isRunning():
+            voice_worker.cancel()
+            voice_worker.wait()
+        for worker in list(self._browser_workers):
+            worker.completed.disconnect()
+            worker.wait()
         self.core.close()

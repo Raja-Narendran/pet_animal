@@ -41,10 +41,14 @@ class Settings:
     BUBBLE_TIMEOUT_MS: int = 6000
 
     # Voice Input
-    VOICE_ENABLED: bool = False          # Master switch for voice input feature
+    VOICE_ENABLED: bool = True          # Master switch for voice input feature
     VOICE_TIMEOUT_S: int = 5            # Seconds to wait for speech to start
-    VOICE_PHRASE_LIMIT_S: int = 10      # Max seconds for a single spoken phrase
-    VOICE_NETWORK_TIMEOUT_S: int = 10   # Timeout for speech recognition requests
+    VOICE_PHRASE_LIMIT_S: int = 60      # Safety limit; never execute a truncated phrase
+    VOICE_MULTILINGUAL: bool = True     # Tamil, English, and mixed speech; local Whisper
+    VOICE_SILENCE_S: float = 1.5        # Minimum final silence before recognition
+    VOICE_MULTILINGUAL_MODEL_DIR: Path = field(default_factory=lambda: _get_base_dir() / 'assets/speech/whisper-small')
+    VOICE_MODEL_DIR: Path = field(default_factory=lambda: _get_base_dir() / 'assets/speech/vosk-model-small-en-us-0.15')
+    VOICE_DEVICE_INDEX: int | None = None  # Default Windows input device
     
     # Sprite State Mapping
     PET_STATES: Dict[str, str] = field(default_factory=lambda: {

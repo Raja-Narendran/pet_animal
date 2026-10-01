@@ -1,6 +1,10 @@
 param([switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
+& .venv\Scripts\python.exe release/prepare_voice_model.py
+if ($LASTEXITCODE -ne 0) { throw 'Offline voice model preparation failed.' }
+& .venv\Scripts\python.exe release/prepare_multilingual_voice.py
+if ($LASTEXITCODE -ne 0) { throw 'Multilingual voice model preparation failed.' }
 if (-not $SkipTests) {
     & .venv\Scripts\python.exe -m pytest -q
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }

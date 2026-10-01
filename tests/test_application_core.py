@@ -262,3 +262,46 @@ def test_memory_write_requires_ui_confirmation(core, qapp, monkeypatch):
         app.pet.hide()
         app.manager.hide()
         qapp.aboutToQuit.disconnect(app.shutdown)
+
+
+def test_controller_pet_minimize_and_restore(core, qapp, monkeypatch):
+    from src.config.settings import settings
+    monkeypatch.setattr(settings, 'STATE_FILE', core.root / 'state.json')
+    app = ApplicationController(core)
+    try:
+        app.pet.show()
+        qapp.processEvents()
+        assert app.pet.isVisible()
+        assert not app.pet.pet_minimized
+        assert not app.pet.command_box.expand_button.isVisible()
+
+        # Click minimize button
+        app.pet.min_btn.click()
+        qapp.processEvents()
+        assert app.pet.pet_minimized
+        assert not app.pet.pet.isVisible()
+        assert app.pet.command_box.isVisible()
+        assert app.pet.command_box.expand_button.isVisible()
+
+        # Click expand button
+        app.pet.command_box.expand_button.click()
+        qapp.processEvents()
+        assert not app.pet.pet_minimized
+        assert app.pet.pet.isVisible()
+        assert not app.pet.command_box.expand_button.isVisible()
+
+        # Show pet from controller restores it if minimized
+        app.pet.min_btn.click()
+        qapp.processEvents()
+        assert app.pet.pet_minimized
+        app.show_pet()
+        qapp.processEvents()
+        assert not app.pet.pet_minimized
+        assert app.pet.pet.isVisible()
+    finally:
+        core.listeners.clear()
+        app.pet.tray_icon.hide()
+        app.pet.hide()
+        app.manager.hide()
+        qapp.aboutToQuit.disconnect(app.shutdown)
+

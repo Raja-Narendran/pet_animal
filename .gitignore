@@ -41,3 +41,8 @@ SKILL.md
 
 # Keep the reproducible application packaging specification
 !pet-animal.spec
+
+# Downloaded offline speech model; prepared by release/prepare_voice_model.py
+assets/speech/vosk-model-*/
+
+assets/speech/whisper-small/

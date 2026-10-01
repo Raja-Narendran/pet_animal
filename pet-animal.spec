@@ -5,19 +5,15 @@ a = Analysis(
     ['src/main.py'],
     pathex=[],
     binaries=[],
-    datas=[('petimage', 'petimage'), ('src/database/migrations', 'src/database/migrations'), ('assets', 'assets')],
+    datas=[('petimage', 'petimage')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=['release/runtime_diagnostics.py'],
-    excludes=['selenium', 'speech_recognition', 'sounddevice', 'numpy', 'pytest'],
+    runtime_hooks=[],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )
-# This Qt build uses the Windows ICU ABI. A PATH ICU build has incompatible
-# version-suffixed exports and must not shadow the OS library.
-from pathlib import Path
-a.binaries = [entry for entry in a.binaries if Path(entry[0]).name.lower() not in {'icuuc.dll', 'icudt78.dll'}]
 pyz = PYZ(a.pure)
 
 exe = EXE(

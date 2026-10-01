@@ -2,7 +2,7 @@
 
 A local Windows desktop companion with a Manager, a transparent floating husky, persistent memory, configurable command phrases, and pet profiles.
 
-V2 extends this repository's working Python/PyQt6 application, as permitted by the supplied specification's existing-stack exception. Both windows use one Python application core and SQLite connection. There is no HTTP backend, AI provider, speech recognition, or text-to-speech in the V2 interface. Existing YouTube/voice modules remain as legacy source; voice and browser automation dependencies are excluded from the V2 release.
+V2 extends this repository's working Python/PyQt6 application, as permitted by the supplied specification's existing-stack exception. Both windows use one Python application core and SQLite connection. There is no HTTP backend, AI provider, or text-to-speech. Microphone commands use a bundled multilingual Whisper model for Tamil and English; audio is never uploaded. Install the dependencies from requirements.txt to enable the microphone. Browser commands (`search <query>`, `play <song> on youtube`) run in background threads and require internet for the requested search/playback. YouTube opens in the default browser, with a search-page fallback if a direct video cannot be resolved. Selenium remains an optional service mode. These dependencies are included by the release specification.
 
 ## Run
 
@@ -10,7 +10,7 @@ V2 extends this repository's working Python/PyQt6 application, as permitted by t
 .venv\Scripts\python.exe src/main.py
 ```
 
-For a fresh environment, use Python 3.10 or newer, create `.venv`, and install `requirements.txt`. Development currently includes legacy optional dependencies to keep the existing tests runnable. V2 only needs PyQt6 and Pillow at runtime.
+For a fresh environment, use Python 3.10 or newer, create `.venv`, and install `requirements.txt`. Development currently includes legacy optional dependencies to keep the existing tests runnable. Prepare both offline speech models with the setup commands below; packaged releases include the speech engines and models.
 
 ## Use the app
 
@@ -95,3 +95,27 @@ PetWindow ─────┘                                  │
 `ApplicationCore` exposes UI-independent memory CRUD/retrieval, exact phrase registration/execution, profile/settings management, imports and backups. `ApplicationController` owns window lifecycle and live propagation. Native OS calls are confined to the validated launcher. DPAPI is isolated in `src/core/secrets.py`. Future providers should call the same restricted core rather than executing operating-system requests themselves.
 
 See `docs/verification.md` for release validation and remaining verification boundaries.
+
+Local voice recognition uses the bundled multilingual Whisper small model on CPU (int8). Click the microphone to switch the chat input into a live speech bar with an audio-driven waveform. The recognized text appears after you finish speaking. Cancel restores the typed input; successful speech runs through voice-specific command matching, and failed commands retain their text for correction. Registered phrases, including disabled phrases, take precedence over browser shortcuts. Free-form browser queries and song titles are omitted from persistent command history.
+
+Prepare the local model when setting up a fresh checkout (download occurs only during setup/build, never while listening):
+
+```powershell
+.venv\Scripts\python.exe release/prepare_voice_model.py
+.venv\Scripts\python.exe release/prepare_multilingual_voice.py
+```
+
+The release bundles the model. Spoken application aliases such as “open Google Chrome” and “open note pad” resolve to enabled registered commands. Typed phrases still match exactly. Audio remains in memory and is discarded after each utterance. Recognition works offline; requested YouTube playback/web search still requires internet.
+
+Voice commands wait for at least 1.5 seconds of trailing silence before execution. Short pauses stay within the same command. The 60-second recording safety limit rejects an incomplete command instead of executing it.
+
+Tamil and English can be mixed in voice commands, for example:
+
+- `Shape of You பாட்டு play பண்ணு` → play Shape of You on YouTube.
+- `Chrome open பண்ணு` or `குரோம் ஓபன் பண்ணுங்க` → open Chrome.
+- `வாத்தி கம்மிங் பாட்டு போடு` → search/play the Tamil song title.
+- `சென்னை weather search பண்ணு` → search the mixed-language query.
+
+Recognition automatically detects the spoken language and transcribes it without translation. English brand/song names can remain in English or use the explicit Tamil aliases. Command matching supports the documented Tamil/Tanglish verbs rather than arbitrary natural-language requests. The waveform follows live microphone audio; the bar shows **Recognizing…** during local processing, which can take several seconds on CPU. Cancel suppresses late results. Typed matching and disabled/custom-command precedence remain unchanged.
+
+The multilingual model is pinned to a verified [faster-whisper small revision](https://huggingface.co/Systran/faster-whisper-small/tree/536b0662742c02347bc0e980a01041f333bce120). Setup downloads about 486 MB; listening never accesses the model hub or uploads audio. The legacy English Vosk path remains available to developers with `VOICE_MULTILINGUAL=False`.

@@ -24,7 +24,7 @@ class PetWidget(QWidget):
     drag_finished = pyqtSignal(QPoint)
 
     # Pixel threshold to differentiate dragging from clicking
-    DRAG_THRESHOLD_PIXELS = 6
+    DRAG_THRESHOLD_PIXELS = 10
 
     def __init__(self, sprite_manager: Optional[SpriteManager] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)

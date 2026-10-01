@@ -1,0 +1,10 @@
+{
+  "pet-animal/pet-animal.exe": {
+    "bytes": 15374341,
+    "sha256": "a3a7074d3d8a23e39d4b4d99c2f532c6f5506c3750f749b3881d74dd32653a2b"
+  },
+  "Pet-Animal-2.0-Setup.exe": {
+    "bytes": 700271433,
+    "sha256": "9ce353c9c2249d3bfce419e12cb2a6bad084c61b8c1e45032ce18d9b691dbe00"
+  }
+}

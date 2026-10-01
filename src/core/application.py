@@ -236,7 +236,36 @@ class ApplicationCore:
         existing = rows[0] if rows else None
         return self.save_memory(category, 'My name', 'user.name', self.propose_memory(value), memory_id=existing['id'] if existing else None)
 
-    def execute(self, phrase):
+    def resolve_voice_phrase(self, phrase):
+        """Explicit spoken aliases only; exact registered/disabled phrases take precedence."""
+        if not isinstance(phrase, str) or len(phrase) > 500:
+            return phrase
+        normalized = normalize(phrase)
+        if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=?', (normalized,)):
+            return phrase
+        from ..commands.voice_phrases import normalize_mixed_voice
+        translated = normalize_mixed_voice(phrase)
+        # A canonical registered phrase also wins, especially when disabled.
+        if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=?', (normalize(translated),)):
+            return translated
+        normalized = normalize(translated)
+        aliases = {'google chrome': ('application', 'chrome'), 'chrome': ('application', 'chrome'),
+                   'note pad': ('application', 'notepad'), 'notepad': ('application', 'notepad'),
+                   'calculator': ('application', 'calculator'), 'calc': ('application', 'calculator'),
+                   'file explorer': ('application', 'explorer'), 'windows explorer': ('application', 'explorer'),
+                   'explorer': ('application', 'explorer'), 'vs code': ('application', 'vscode'),
+                   'visual studio code': ('application', 'vscode'), 'vscode': ('application', 'vscode'),
+                   'you tube': ('url', 'https://www.youtube.com'), 'youtube': ('url', 'https://www.youtube.com'),
+                   'google': ('url', 'https://www.google.com')}
+        candidate = re.sub(r'^(open|launch|start|run) (the )?', '', normalized)
+        action_target = aliases.get(candidate)
+        if action_target:
+            matches = [c for c in self.commands() if c['enabled'] and (c['action_type'], c['target']) == action_target]
+            if len(matches) == 1:
+                return matches[0]['phrases'][0]
+        return translated
+
+    def execute(self, phrase, defer_browser=False):
         if not isinstance(phrase, str) or len(phrase) > 500:
             return dict(success=False, message='Command is too long.', pet_state='error')
         normalized = normalize(phrase)
@@ -252,10 +281,32 @@ class ApplicationCore:
                 return dict(success=False, message=str(error), pet_state='error')
         if normalized == 'help':
             names = [c['phrases'][0] for c in self.commands() if c['enabled']]
-            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nMemory: remember my name as <name>; what is my name', pet_state='idle')
+            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nBrowser: search <query>; play <song> on youtube\nMemory: remember my name as <name>; what is my name', pet_state='idle')
         found = self.rows('''SELECT c.* FROM commands c JOIN command_phrases p ON p.command_id=c.id
                             WHERE p.normalized_phrase=? AND c.enabled=1''', (normalized,))
         command_id = None
+        # Registered phrases (including disabled ones) take precedence.
+        registered = self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=?', (normalized,))
+        if not registered:
+            match = re.fullmatch(r'(search for|search on google|search google for|search google|search|look up|find|google) (.+)', normalized)
+            action = 'search'
+            if not match:
+                match = re.fullmatch(r'(play on youtube|youtube play|play song|play music|play) (.+)', normalized)
+                action = 'music'
+            if match:
+                target = match[2]
+                if action == 'music' and target.endswith(' on youtube'):
+                    target = target[:-11].strip()
+                if target and not any(ord(c) < 32 for c in phrase):
+                    if defer_browser:
+                        return dict(success=True, message='Searching…' if action == 'search' else 'Finding your song…',
+                                    pet_state='working', browser_action=action, browser_target=target)
+                    try:
+                        handler = self.launcher.search_web if action == 'search' else self.launcher.play_youtube
+                        success, message = handler(target)
+                    except Exception:
+                        success, message = False, 'The browser action could not be executed.'
+                    return self.finish_browser_action(action, success, message)
         if not found:
             success, message = False, 'Unsupported command. Type help to see registered phrases.'
         else:
@@ -276,8 +327,17 @@ class ApplicationCore:
         self.changed()
         return dict(success=success, message=message, pet_state='success' if success else 'error')
 
+    def finish_browser_action(self, action, success, message):
+        # Keep free-form searches and song titles out of persistent history.
+        with self.db:
+            self.db.execute('INSERT INTO command_history VALUES (?,?,?,?,?,?)',
+                            (identifier(), None, '[web search]' if action == 'search' else '[music playback]',
+                             'success' if success else 'failed', '' if success else 'Browser action failed.', now()))
+        self.changed()
+        return dict(success=success, message=message, pet_state='success' if success else 'error')
+
     def history(self, status='', date='', command_id=None):
-        sql = '''SELECT h.*, COALESCE(c.name,'Unsupported / deleted command') AS name FROM command_history h LEFT JOIN commands c ON c.id=h.command_id WHERE 1=1'''
+        sql = '''SELECT h.*, COALESCE(c.name, CASE h.trigger_phrase WHEN '[web search]' THEN 'Web search' WHEN '[music playback]' THEN 'Music playback' ELSE 'Unsupported / deleted command' END) AS name FROM command_history h LEFT JOIN commands c ON c.id=h.command_id WHERE 1=1'''
         args = []
         if status:
             sql += ' AND h.execution_status=?'

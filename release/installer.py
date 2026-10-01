@@ -72,8 +72,8 @@ def main():
     root.geometry('520x250')
     root.resizable(False, False)
     tk.Label(root, text='Pet Animal', font=('Segoe UI', 24, 'bold'), fg='#3368A0').pack(pady=(24, 8))
-    tk.Label(root, text='Install your local desktop companion for this Windows user.\nIncludes the Manager and floating husky. No administrator access needed.', font=('Segoe UI', 10)).pack(pady=8)
-    status = tk.Label(root, text='Your memories are kept separately in LocalAppData.', font=('Segoe UI', 9))
+    tk.Label(root, text='Install your local desktop companion for this Windows user.\nIncludes the Manager and floating husky.', font=('Segoe UI', 10)).pack(pady=8)
+    status = tk.Label(root, text='', font=('Segoe UI', 9))
     status.pack(pady=8)
     def run():
         install_button.config(state='disabled')

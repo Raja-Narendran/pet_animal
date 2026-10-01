@@ -72,7 +72,8 @@ class YouTubeAutomationService:
         encoded = urllib.parse.quote_plus(song_name)
         search_url = f"https://www.youtube.com/results?search_query={encoded}"
         logger.info(f"Opening YouTube search in existing browser fallback: {search_url}")
-        webbrowser.open(search_url)
+        if not webbrowser.open(search_url):
+            return False, "Could not open browser."
         return True, f"Searching for '{song_name}' on YouTube..."
 
     @classmethod

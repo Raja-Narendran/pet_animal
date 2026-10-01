@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QLabel,
 )
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PyQt6.QtCore import Qt, QTimer, QRectF
+from PyQt6.QtCore import Qt, QTimer, QRectF, pyqtSignal
 from ..config.settings import settings
 from ..utils.logger import get_logger
 
@@ -20,6 +20,9 @@ class ResponseBubbleWidget(QWidget):
     because drop shadow effects cause ghost-rendering artifacts on
     transparent frameless windows (WA_TranslucentBackground).
     """
+
+    bubble_shown = pyqtSignal()
+    bubble_hidden = pyqtSignal()
 
     BORDER_RADIUS = 12
     SHADOW_OFFSET_Y = 3
@@ -101,6 +104,7 @@ class ResponseBubbleWidget(QWidget):
         self.label.setText(message)
         self.adjustSize()
         self.show()
+        self.bubble_shown.emit()
         logger.debug("Response bubble displayed")
 
         if self.auto_hide_timer.isActive():
@@ -108,3 +112,7 @@ class ResponseBubbleWidget(QWidget):
 
         if timeout_ms > 0:
             self.auto_hide_timer.start(timeout_ms)
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self.bubble_hidden.emit()

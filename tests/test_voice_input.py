@@ -106,199 +106,169 @@ class TestSoundDeviceMicrophone:
 
 
 # ---------------------------------------------------------------------------
-# VoiceInputWorker tests (mocked — no hardware)
+# VoiceInputWorker tests use deterministic streaming PCM and recognizer results.
 # ---------------------------------------------------------------------------
 
-class TestVoiceInputWorkerUnavailable:
-    """Test worker behavior when SpeechRecognition is not available."""
-
-    @patch("src.services.voice_input.SPEECH_AVAILABLE", False)
-    def test_emits_error_when_unavailable(self, qtbot):
-        from src.services.voice_input import VoiceInputWorker
-
-        worker = VoiceInputWorker()
-        worker._recognizer = None
-
-        errors = []
-        stopped = []
-        worker.error_occurred.connect(lambda msg: errors.append(msg))
-        worker.listening_stopped.connect(lambda: stopped.append(True))
-
-        worker.run()
-
-        assert len(errors) == 1
-        assert "not available" in errors[0].lower()
-        assert len(stopped) == 1
-
-
-class TestVoiceInputWorkerRecognition:
-    """Test worker transcription with mocked SpeechRecognition."""
-
-    def test_emits_recognized_text_on_success(self, qtbot):
-        """Worker should emit speech_recognized with the transcribed text."""
-        from src.services.voice_input import VoiceInputWorker
-
-        mock_recognizer = MagicMock()
-        mock_recognizer.recognize_google.return_value = "open chrome"
-        mock_recognizer.adjust_for_ambient_noise = MagicMock()
-
-        worker = VoiceInputWorker()
-        worker._recognizer = mock_recognizer
-
-        # Mock _get_microphone to return a dummy context manager
-        mock_source = MagicMock()
-        mock_source.__enter__ = MagicMock(return_value=mock_source)
-        mock_source.__exit__ = MagicMock(return_value=False)
-        worker._get_microphone = MagicMock(return_value=mock_source)
-
-        results = []
-        stopped = []
-        worker.speech_recognized.connect(lambda text: results.append(text))
-        worker.listening_stopped.connect(lambda: stopped.append(True))
-
-        worker.run()
-
-        assert results == ["open chrome"]
-        assert len(stopped) == 1
-
-    def test_emits_error_on_wait_timeout(self, qtbot):
-        """Worker should emit error_occurred when no speech is detected within timeout."""
-        from src.services.voice_input import VoiceInputWorker
-        import speech_recognition as sr_lib
-
-        mock_recognizer = MagicMock()
-        mock_recognizer.listen.side_effect = sr_lib.WaitTimeoutError("timeout")
-        mock_recognizer.adjust_for_ambient_noise = MagicMock()
-
-        worker = VoiceInputWorker()
-        worker._recognizer = mock_recognizer
-
-        mock_source = MagicMock()
-        mock_source.__enter__ = MagicMock(return_value=mock_source)
-        mock_source.__exit__ = MagicMock(return_value=False)
-        worker._get_microphone = MagicMock(return_value=mock_source)
-
-        errors = []
-        recognized = []
-        worker.error_occurred.connect(lambda msg: errors.append(msg))
-        worker.speech_recognized.connect(lambda text: recognized.append(text))
-
-        worker.run()
-
-        assert len(errors) == 1
-        assert "no speech" in errors[0].lower()
-        assert len(recognized) == 0
-
-    def test_emits_error_on_unknown_value(self, qtbot):
-        """Worker should emit error_occurred when speech is not understood."""
-        from src.services.voice_input import VoiceInputWorker
-        import speech_recognition as sr_lib
-
-        mock_recognizer = MagicMock()
-        mock_recognizer.recognize_google.side_effect = sr_lib.UnknownValueError()
-        mock_recognizer.adjust_for_ambient_noise = MagicMock()
-
-        worker = VoiceInputWorker()
-        worker._recognizer = mock_recognizer
-
-        mock_source = MagicMock()
-        mock_source.__enter__ = MagicMock(return_value=mock_source)
-        mock_source.__exit__ = MagicMock(return_value=False)
-        worker._get_microphone = MagicMock(return_value=mock_source)
-
-        errors = []
-        worker.error_occurred.connect(lambda msg: errors.append(msg))
-
-        worker.run()
-
-        assert len(errors) == 1
-        assert "catch" in errors[0].lower() or "try again" in errors[0].lower()
-
-    def test_emits_error_on_request_error(self, qtbot):
-        """Worker should handle network/service errors gracefully."""
-        from src.services.voice_input import VoiceInputWorker
-        import speech_recognition as sr_lib
-
-        mock_recognizer = MagicMock()
-        mock_recognizer.recognize_google.side_effect = sr_lib.RequestError("Network error")
-        mock_recognizer.adjust_for_ambient_noise = MagicMock()
-
-        worker = VoiceInputWorker()
-        worker._recognizer = mock_recognizer
-
-        mock_source = MagicMock()
-        mock_source.__enter__ = MagicMock(return_value=mock_source)
-        mock_source.__exit__ = MagicMock(return_value=False)
-        worker._get_microphone = MagicMock(return_value=mock_source)
-
-        errors = []
-        worker.error_occurred.connect(lambda msg: errors.append(msg))
-
-        worker.run()
-
-        assert len(errors) == 1
-        assert "service unavailable" in errors[0].lower() or "internet" in errors[0].lower()
-
-    def test_emits_error_on_microphone_os_error(self, qtbot):
-        """Worker should handle microphone access failures gracefully."""
-        from src.services.voice_input import VoiceInputWorker
-
-        mock_source = MagicMock()
-        mock_source.__enter__ = MagicMock(
-            side_effect=OSError("No default input device")
-        )
-        mock_source.__exit__ = MagicMock(return_value=False)
-
-        worker = VoiceInputWorker()
-        worker._recognizer = MagicMock()
-        worker._get_microphone = MagicMock(return_value=mock_source)
-
-        errors = []
-        worker.error_occurred.connect(lambda msg: errors.append(msg))
-
-        worker.run()
-
-        assert len(errors) == 1
-        assert "microphone" in errors[0].lower()
+@pytest.fixture
+def streaming_worker(monkeypatch):
+    import json
+    from src.services.voice_input import VoiceInputWorker
+    monkeypatch.setattr('src.services.voice_input.settings.VOICE_MULTILINGUAL', False)
+    monkeypatch.setattr('src.services.voice_input.SPEECH_AVAILABLE', True)
+    monkeypatch.setattr('src.services.voice_input.get_voice_model', lambda: object())
+    recognizer = MagicMock()
+    recognizer.AcceptWaveform.return_value = True
+    recognizer.Result.return_value = json.dumps({'text': 'play shape of you', 'result': [{'conf': 0.9}]})
+    monkeypatch.setattr('src.services.voice_input.create_recognizer', lambda rate: recognizer)
+    worker = VoiceInputWorker()
+    source = MagicMock()
+    source.SAMPLE_RATE = 16000
+    source.SAMPLE_WIDTH = 2
+    source.CHUNK = 1024
+    source.stream.read.return_value = bytes(2048)
+    source.__enter__.return_value = source
+    source.__exit__.return_value = False
+    worker._get_microphone = MagicMock(return_value=source)
+    return worker, recognizer, source
 
 
-class TestVoiceInputWorkerSignalContract:
-    """Verify that listening_stopped is always emitted (success or failure)."""
+def test_voice_stream_result_and_signal_order(qtbot, streaming_worker):
+    worker, recognizer, source = streaming_worker
+    events = []
+    worker.listening_started.connect(lambda: events.append('listening'))
+    worker.processing_started.connect(lambda: events.append('processing'))
+    worker.speech_recognized.connect(lambda text: events.append(text))
+    worker.listening_stopped.connect(lambda: events.append('stopped'))
+    worker.run()
+    assert events == ['listening', 'processing', 'play shape of you', 'stopped']
+    source.stream.read.assert_called_once_with(1024)
 
-    def test_listening_stopped_always_emitted_on_success(self, qtbot):
-        from src.services.voice_input import VoiceInputWorker
 
-        mock_recognizer = MagicMock()
-        mock_recognizer.recognize_google.return_value = "hello"
-        mock_recognizer.adjust_for_ambient_noise = MagicMock()
+def test_voice_unavailable_still_stops(qtbot, monkeypatch):
+    from src.services.voice_input import VoiceInputWorker
+    monkeypatch.setattr('src.services.voice_input.SPEECH_AVAILABLE', False)
+    worker = VoiceInputWorker()
+    with qtbot.waitSignal(worker.listening_stopped):
+        with qtbot.waitSignal(worker.error_occurred) as error:
+            worker.run()
+    assert 'not available' in error.args[0]
 
-        mock_source = MagicMock()
-        mock_source.__enter__ = MagicMock(return_value=mock_source)
-        mock_source.__exit__ = MagicMock(return_value=False)
 
-        worker = VoiceInputWorker()
-        worker._recognizer = mock_recognizer
-        worker._get_microphone = MagicMock(return_value=mock_source)
+def test_voice_partial_text_streams_before_final(qtbot, streaming_worker):
+    worker, rec, source = streaming_worker
+    rec.AcceptWaveform.side_effect = [False, True]
+    rec.PartialResult.return_value = '{"partial":"play shape"}'
+    partials = []
+    worker.partial_recognized.connect(partials.append)
+    worker.run()
+    assert partials == ['play shape']
 
-        stopped = []
-        worker.listening_stopped.connect(lambda: stopped.append(True))
-        worker.run()
-        assert len(stopped) == 1
 
-    def test_listening_stopped_always_emitted_on_error(self, qtbot):
-        from src.services.voice_input import VoiceInputWorker
+def test_voice_silence_times_out(qtbot, streaming_worker):
+    worker, rec, source = streaming_worker
+    worker.timeout = 0.1
+    rec.AcceptWaveform.return_value = False
+    rec.PartialResult.return_value = '{"partial":""}'
+    rec.FinalResult.return_value = '{"text":""}'
+    errors, results = [], []
+    worker.error_occurred.connect(errors.append)
+    worker.speech_recognized.connect(results.append)
+    worker.run()
+    assert not results
+    assert 'No clear speech' in errors[0]
+    assert source.stream.read.call_count == 2
 
-        mock_source = MagicMock()
-        mock_source.__enter__ = MagicMock(
-            side_effect=OSError("fail")
-        )
-        mock_source.__exit__ = MagicMock(return_value=False)
 
-        worker = VoiceInputWorker()
-        worker._recognizer = MagicMock()
-        worker._get_microphone = MagicMock(return_value=mock_source)
+def test_voice_low_confidence_does_not_execute(qtbot, streaming_worker):
+    worker, rec, source = streaming_worker
+    rec.Result.return_value = '{"text":"play wrong song","result":[{"conf":0.2}]}'
+    results, errors = [], []
+    worker.speech_recognized.connect(results.append)
+    worker.error_occurred.connect(errors.append)
+    worker.run()
+    assert not results and 'clearly' in errors[0]
 
-        stopped = []
-        worker.listening_stopped.connect(lambda: stopped.append(True))
-        worker.run()
-        assert len(stopped) == 1
+
+def test_voice_cancel_before_microphone(qtbot, streaming_worker):
+    worker, rec, source = streaming_worker
+    worker.cancel()
+    results = []
+    worker.speech_recognized.connect(results.append)
+    worker.run()
+    worker._get_microphone.assert_not_called()
+    assert not results
+
+
+def test_voice_microphone_failure_still_stops(qtbot, streaming_worker):
+    worker, rec, source = streaming_worker
+    source.__enter__.side_effect = OSError('No microphone')
+    with qtbot.waitSignal(worker.listening_stopped):
+        with qtbot.waitSignal(worker.error_occurred) as error:
+            worker.run()
+    assert 'microphone' in error.args[0]
+
+
+def test_actual_pcm_levels_are_zero_for_silence_and_react_to_audio():
+    from array import array
+    from src.services.voice_input import audio_level
+    assert audio_level(bytes(2048)) == 0
+    quiet = audio_level(array('h', [1000, -1000] * 512).tobytes())
+    loud = audio_level(array('h', [10000, -10000] * 512).tobytes())
+    assert 0 < quiet < loud <= 1
+
+
+def test_real_offline_model_transcribes_reported_command(monkeypatch):
+    """Locally synthesized speech exercises the native engine, not recognizer mocks."""
+    import json
+    import wave
+    from pathlib import Path
+    from src.services.voice_input import SPEECH_AVAILABLE, create_recognizer
+    if not SPEECH_AVAILABLE:
+        pytest.skip('Prepare the bundled model to run native speech verification.')
+    monkeypatch.setattr('urllib.request.urlopen', lambda *args, **kwargs: pytest.fail('Recognition must stay offline'))
+    with wave.open(str(Path(__file__).parent / 'fixtures/play-shape-of-you.wav'), 'rb') as audio:
+        recognizer = create_recognizer(audio.getframerate())
+        pcm = audio.readframes(audio.getnframes()) + bytes(audio.getframerate() * 2)
+    results = []
+    for offset in range(0, len(pcm), 2048):
+        if recognizer.AcceptWaveform(pcm[offset:offset + 2048]):
+            results.append(json.loads(recognizer.Result()).get('text', ''))
+    results.append(json.loads(recognizer.FinalResult()).get('text', ''))
+    assert ' '.join(text for text in results if text) == 'play shape of you'
+
+
+def test_real_offline_command_survives_one_second_mid_sentence_pause():
+    import json
+    import wave
+    from pathlib import Path
+    from src.services.voice_input import SPEECH_AVAILABLE, create_recognizer
+    if not SPEECH_AVAILABLE:
+        pytest.skip('Prepare the bundled model to run native speech verification.')
+    with wave.open(str(Path(__file__).parent / 'fixtures/play-pause-shape-of-you.wav'), 'rb') as audio:
+        speech = audio.readframes(audio.getnframes())
+        sample_rate = audio.getframerate()
+    recognizer = create_recognizer(sample_rate)
+    pcm = speech + bytes(sample_rate * 4)  # Two seconds of silence after finishing.
+    endpoints = []
+    for offset in range(0, len(pcm), 320):  # 10 ms audio steps, not wall-clock sleeps.
+        if recognizer.AcceptWaveform(pcm[offset:offset + 320]):
+            endpoints.append(((offset + 320) / (sample_rate * 2), json.loads(recognizer.Result())))
+    assert len(endpoints) == 1  # No early submission at the one-second gap.
+    endpoint_time, result = endpoints[0]
+    assert result['text'] == 'play shape of you'
+    last_word_end = result['result'][-1]['end']
+    assert endpoint_time - last_word_end >= 1.5
+
+
+def test_recording_limit_does_not_submit_an_incomplete_command(qtbot, streaming_worker):
+    worker, recognizer, source = streaming_worker
+    worker.phrase_time_limit = 0.1
+    recognizer.AcceptWaveform.return_value = False
+    recognizer.PartialResult.return_value = '{"partial":"play shape"}'
+    results, errors = [], []
+    worker.speech_recognized.connect(results.append)
+    worker.error_occurred.connect(errors.append)
+    worker.run()
+    assert not results
+    assert 'recording limit' in errors[0]
+    recognizer.FinalResult.assert_not_called()
