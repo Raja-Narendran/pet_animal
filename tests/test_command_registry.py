@@ -28,6 +28,8 @@ def test_registry_default_handlers():
 
     assert registry.get_handler(ActionType.OPEN_APPLICATION) is not None
     assert registry.get_handler(ActionType.OPEN_URL) is not None
+    assert registry.get_handler(ActionType.SEARCH_WEB) is not None
+    assert registry.get_handler(ActionType.PLAY_MUSIC) is not None
     assert registry.get_handler(ActionType.SHOW_HELP) is not None
     assert registry.get_handler(ActionType.UNKNOWN) is None
 

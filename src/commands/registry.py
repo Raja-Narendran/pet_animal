@@ -4,6 +4,8 @@ from .model import ActionType
 from .actions.base import BaseCommandHandler
 from .actions.open_application import OpenApplicationHandler
 from .actions.open_url import OpenUrlHandler
+from .actions.search_web import SearchWebHandler
+from .actions.play_music import PlayMusicHandler
 from .actions.help import HelpHandler
 from ..services.windows_launcher import BaseLauncher, WindowsLauncher
 from ..utils.logger import get_logger
@@ -23,6 +25,8 @@ class CommandRegistry:
         """Register the built-in action handlers."""
         self.register(ActionType.OPEN_APPLICATION, OpenApplicationHandler(self.launcher))
         self.register(ActionType.OPEN_URL, OpenUrlHandler(self.launcher))
+        self.register(ActionType.SEARCH_WEB, SearchWebHandler(self.launcher))
+        self.register(ActionType.PLAY_MUSIC, PlayMusicHandler(self.launcher))
         self.register(ActionType.SHOW_HELP, HelpHandler())
 
     def register(self, action_type: ActionType, handler: BaseCommandHandler) -> None:

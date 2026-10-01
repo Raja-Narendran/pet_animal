@@ -1,5 +1,5 @@
 """Unit tests for WindowsLauncher security and dispatching."""
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pytest
 from src.services.windows_launcher import WindowsLauncher
 
@@ -77,3 +77,30 @@ def test_vscode_not_found():
         success, msg = launcher.open_application("vscode")
         assert success is False
         assert "couldn't find Visual Studio Code" in msg
+
+
+@patch("webbrowser.open")
+def test_search_web_success(mock_browser):
+    mock_browser.return_value = True
+    launcher = WindowsLauncher()
+    success, msg = launcher.search_web("python programming")
+    assert success is True
+    assert "Searching for 'python programming' on Google" in msg
+    mock_browser.assert_called_once_with("https://www.google.com/search?q=python+programming")
+
+
+def test_search_web_empty():
+    launcher = WindowsLauncher()
+    success, msg = launcher.search_web("   ")
+    assert success is False
+    assert "Please specify a search query" in msg
+
+
+@patch("src.services.youtube_automation.YouTubeAutomationService.play_song")
+def test_play_youtube_delegation(mock_play):
+    mock_play.return_value = (True, "Playing 'shape of you' on YouTube...")
+    launcher = WindowsLauncher()
+    success, msg = launcher.play_youtube("shape of you")
+    assert success is True
+    assert "Playing 'shape of you'" in msg
+    mock_play.assert_called_once_with("shape of you")

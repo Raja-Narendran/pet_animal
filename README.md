@@ -1,199 +1,123 @@
-# Pet Animal — Floating Desktop Companion (V1)
+# Pet Animal 2.0
 
-A lightweight, cute, frameless, and transparent floating pet companion for the Windows desktop. The companion stays above normal windows, can be dragged anywhere, and features a small interactive command box to execute predefined desktop tasks (such as launching applications or opening websites).
+A local Windows desktop companion with a Manager, a transparent floating husky, persistent memory, configurable command phrases, and pet profiles.
 
----
+V2 extends this repository's working Python/PyQt6 application, as permitted by the supplied specification's existing-stack exception. Both windows use one Python application core and SQLite connection. There is no HTTP backend, AI provider, or text-to-speech. Microphone commands use a bundled multilingual Whisper model for Tamil and English; audio is never uploaded. Install the dependencies from requirements.txt to enable the microphone. Browser commands (`search <query>`, `play <song> on youtube`) run in background threads and require internet for the requested search/playback. YouTube opens in the default browser, with a search-page fallback if a direct video cannot be resolved. Selenium remains an optional service mode. These dependencies are included by the release specification.
 
-## Architecture Diagram
+## Run
+
+```powershell
+.venv\Scripts\python.exe src/main.py
+```
+
+For a fresh environment, use Python 3.10 or newer, create `.venv`, and install `requirements.txt`. Development currently includes legacy optional dependencies to keep the existing tests runnable. Prepare both offline speech models with the setup commands below; packaged releases include the speech engines and models.
+
+## Use the app
+
+- **Dashboard:** live memory and command counts, executions today, active pet, recent activity, and quick actions.
+- **Memory:** add/edit/delete records; search titles, keys, descriptions and nonsensitive values; filter by database-backed categories; disable individual memories; import/export JSON. Memory keys are internal. Categories can optionally encrypt their values.
+- **Commands:** configure multiple exact phrases per action, detect conflicts, enable/disable, edit, delete and test. Tests in the Manager execute the configured action.
+- **Pet Studio:** select existing husky sheets or import a PNG sheet; create, edit and activate profiles; adjust size, desktop position, always-on-top, animation, and chat appearance. Preview changes before saving. Saving updates the floating pet immediately.
+- **Activity:** filter executions by command, status or local date. Clear history with confirmation.
+- **Settings:** persist theme, tray, notifications, Manager minimization and whether the pet opens when the app starts; import/export configuration; create/restore database backups; open logs; explicitly quit.
+
+Close the Manager to leave the floating pet running. Reopen it through **Open Manager** in the tray. With the tray disabled, hiding the pet opens the Manager so there is always a way back. Closing the Manager when both the pet and tray are hidden exits. The pet's × control hides the pet. **Quit** ends the application.
+
+## Command patterns
+
+Commands normalize case and whitespace, then match registered phrases exactly. The initial actions open Chrome, Calculator, Notepad, Explorer, VS Code, Google and YouTube. Application actions accept only the existing native launcher's five allowlisted application IDs. Website actions accept registered HTTPS URLs without credentials. The app never executes raw input as a shell command.
+
+The following deterministic patterns are reserved:
 
 ```text
-                  🐕
-             ┌──────────┐
-             │   PET    │
-             └────┬─────┘
-                  │  (Click to toggle)
-        ┌─────────▼─────────────────┐
-        │ What should I do?       ➤ │
-        └─────────┬─────────────────┘
-                  │  "open chrome"
-        ┌─────────▼─────────────────┐
-        │       Command Parser      │  (RuleBasedCommandParser)
-        └─────────┬─────────────────┘
-                  │  Command(OPEN_APPLICATION, "chrome")
-        ┌─────────▼─────────────────┐
-        │      Command Executor     │  (CommandExecutor & Registry)
-        └─────────┬─────────────────┘
-                  │  Safe Whitelisted Dispatch
-        ┌─────────▼─────────────────┐
-        │      Windows Launcher     │  (WindowsLauncher)
-        └─────────┬─────────────────┘
-                  │
-                  ▼
-              🟢 Chrome
+help
+remember my name as Naren
+what is my name
 ```
 
----
+A `remember` command proposes the value and displays a Yes/No confirmation before saving `user.name`. Repeating it updates the same record. Cancel leaves memory unchanged. Memory commands do not enter command history. Unsupported input is recorded only as `[unsupported command]`.
 
-## Project Overview
+## Storage and privacy
 
-`pet-animal` V1 is a deterministic desktop automation tool designed to feel like an adorable desktop companion. It uses native per-pixel alpha transparency and high-DPI pixel-perfect scaling to render 64×64 pixel art sprite sheets cleanly without blur or window borders.
+The application stores data in `%LOCALAPPDATA%\PetAnimal`:
 
-In V1, **no AI/LLM models, external APIs, or heavy browser engines** are used. The architecture is modular and decoupled so that in future versions, an AI or Natural Language Parser can be dropped in without changing the UI, the command models, or the execution engine.
-
----
-
-## Features (V1)
-
-- **Frameless & Transparent Window**: Floating companion with no title bars, window chrome, or borders.
-- **Always on Top**: Remains visible above standard desktop windows.
-- **Draggable Companion**: Smooth dragging with mouse-drag detection that prevents accidental clicks.
-- **Interactive Command Box**: Compact command box toggled by clicking the pet; supports Enter key and Send button (`➤`).
-- **Pixel Art Sprite Sheets**: Loads and renders sprite animations from `petimage/` with states for `idle`, `working`, `thinking`, `success`, `error`, `greeting`, and `sleeping`.
-- **Speech Bubble Response**: Contextual speech bubbles displaying execution feedback and help.
-- **System Tray Integration**: Minimize to system tray or right-click to access context menu (Toggle Box, Help, Sleep, Reset Position, Exit).
-- **Position Persistence**: Automatically saves and restores the last desktop location on next launch.
-- **Deterministic & Secure**: Strict whitelist of safe commands; raw user input is never passed to a shell.
-
----
-
-## Requirements
-
-- **Operating System**: Windows 10 or Windows 11 (64-bit)
-- **Python**: Python 3.10+ (Tested on Python 3.14)
-- **Dependencies**: `PyQt6`, `Pillow`, `pytest` (listed in `requirements.txt`)
-
----
-
-## Installation
-
-1. Clone or navigate to the repository directory:
-   ```powershell
-   cd k:\pet_animal
-   ```
-
-2. Create a virtual environment:
-   ```powershell
-   python -m venv .venv
-   ```
-
-3. Activate the virtual environment:
-   ```powershell
-   .venv\Scripts\Activate.ps1
-   ```
-
-4. Install dependencies:
-   ```powershell
-   pip install -r requirements.txt
-   ```
-
----
-
-## Development
-
-To launch the desktop companion in development mode:
-
-```powershell
-.venv\Scripts\python src\main.py
-```
-
-To run all unit tests:
-
-```powershell
-.venv\Scripts\pytest -v
-```
-
----
-
-## Build (Standalone Executable)
-
-To build a standalone Windows `.exe` application bundle using PyInstaller:
-
-```powershell
-.venv\Scripts\pyinstaller --clean --noconfirm --onedir --windowed --name pet-animal --add-data "petimage;petimage" src/main.py
-```
-
-The resulting standalone executable is generated in:
 ```text
-dist/pet-animal/pet-animal.exe
+database/petanimal.db
+pets/imported/
+backups/
+logs/
+state.json
 ```
 
----
+Sensitive-category values use Windows DPAPI encryption tied to the current Windows user. Listings mask values, search does not decrypt them, and ordinary memory exports exclude sensitive categories. Edit/reveal is an explicit local UI action. Only the value is encrypted: titles and descriptions should not contain passwords or card numbers. Name and other ordinary categories are plain structured SQLite data.
 
-## Supported Commands
+Schema migrations are versioned under `src/database/migrations`. Foreign keys, uniqueness constraints and indexes are enabled. Imports validate records and reject conflicts transactionally rather than silently overwriting existing records. Configuration imports append commands and profiles, apply imported preferences, and activate the imported active profile. An export containing phrases already registered on this installation will be rejected; remove those records from the JSON before an additive import.
 
-The parser normalizes input by trimming leading/trailing whitespace, collapsing internal spaces, and handling case-insensitivity. Supported commands can be prefixed with `open`, `launch`, `start`, `run`, or entered directly:
+Database backups use SQLite's backup API. Restore requires confirmation, validates integrity/schema/actions/settings/assets, and creates a recovery backup before replacement. Backups retain encrypted values and require the original Windows user for decryption. A database backup does not embed imported PNGs: keep `pets/imported` alongside your backups; restore rejects missing assets. Windows login autostart is not configured; the startup preference controls what happens when Pet Animal itself starts.
 
-| Command | Aliases / Variations | Action Executed |
-| :--- | :--- | :--- |
-| **Open Chrome** | `open chrome`, `launch chrome`, `start chrome`, `open google chrome` | Launches Google Chrome |
-| **Open Notepad** | `open notepad`, `launch notepad`, `start notepad` | Launches Windows Notepad (`notepad.exe`) |
-| **Open Calculator** | `open calculator`, `launch calculator`, `start calculator`, `open calc` | Launches Windows Calculator (`calc.exe`) |
-| **Open File Explorer** | `open explorer`, `open file explorer`, `launch explorer`, `start explorer` | Opens Windows File Explorer (`explorer.exe`) |
-| **Open VS Code** | `open vscode`, `open vs code`, `launch vscode`, `start vscode` | Resolves and launches Visual Studio Code (`code.exe` / `code.cmd`) |
-| **Open YouTube** | `open youtube`, `launch youtube`, `youtube` | Opens `https://www.youtube.com` in the system default browser |
-| **Open Google** | `open google`, `launch google`, `google` | Opens `https://www.google.com` in the system default browser |
-| **Help** | `help`, `commands`, `?`, `show help` | Displays list of supported commands in pet speech bubble |
+## Development and verification
 
----
+```powershell
+.venv\Scripts\python.exe -m pytest -q
+.venv\Scripts\python.exe src/main.py --self-test build/source-verification.json
+```
+
+The self-test uses a temporary database, performs no application launches, and checks migration, memory, restore, all six pages, live profile switching, independent Manager closing and quit cleanup. Tests mock external launches and do not require Chrome or VS Code.
+
+The UI uses the requested palette and local icons fetched from the supplied Figma reference. It adapts the design to native Qt layouts and replaces sample AI/workspace activity with actual application data. Existing sprite sheets are reused without generating new images.
+
+## Windows release
+
+```powershell
+.\release\build.ps1
+```
+
+This runs tests, builds the native application, embeds it in a Windows installer and writes:
+
+```text
+dist/v2/pet-animal/pet-animal.exe
+dist/v2/Pet-Animal-2.0-Setup.exe
+```
+
+The installer installs for the current Windows user under `%LOCALAPPDATA%\Programs\Pet Animal`, creates a Start menu shortcut, and registers uninstall in Windows Settings. It needs no administrator access. Quit the app before uninstalling. Uninstallation preserves `%LOCALAPPDATA%\PetAnimal` and all saved memories. Existing installations are not overwritten; uninstall the previous app first. The executable and installer are unsigned.
+
+The build preserves the existing V1 output under `dist/pet-animal`. Build resources include the migration, original pet sheets and local design icons.
 
 ## Architecture
 
-The project adheres to strict separation of concerns:
-
 ```text
-src/
-├── app/
-│   └── pet_window.py          # Main frameless, transparent, always-on-top window
-├── components/
-│   ├── pet.py                 # PetWidget with animation, drag tracking, and click signals
-│   ├── command_box.py         # CommandBoxWidget with text input and submit trigger
-│   └── response.py            # ResponseBubbleWidget with auto-dismissing speech bubble
-├── commands/
-│   ├── model.py               # Normalized Command & CommandResult models
-│   ├── parser.py              # RuleBasedCommandParser (BaseCommandParser interface)
-│   ├── registry.py            # CommandRegistry mapping ActionTypes to Handlers
-│   ├── executor.py            # CommandExecutor safely orchestrating actions
-│   └── actions/
-│       ├── base.py            # BaseCommandHandler abstract base
-│       ├── open_application.py# OpenApplicationHandler
-│       ├── open_url.py        # OpenUrlHandler
-│       └── help.py            # HelpHandler
-├── services/
-│   └── windows_launcher.py    # WindowsLauncher (safe process spawner, no shell=True with user text)
-├── config/
-│   └── settings.py            # Application dimensions, paths, and configuration
-├── utils/
-│   ├── logger.py              # Lightweight logging setup
-│   └── sprite.py              # SpriteManager slicing 64x64 sprite sheet frames
-└── main.py                    # Entry point initializing QApplication and PetWindow
+ManagerWindow ─┐
+               ├── ApplicationController ── ApplicationCore ── SQLite
+PetWindow ─────┘                                  │
+                                      validated WindowsLauncher
 ```
 
-### Future AI Layer Compatibility
+`ApplicationCore` exposes UI-independent memory CRUD/retrieval, exact phrase registration/execution, profile/settings management, imports and backups. `ApplicationController` owns window lifecycle and live propagation. Native OS calls are confined to the validated launcher. DPAPI is isolated in `src/core/secrets.py`. Future providers should call the same restricted core rather than executing operating-system requests themselves.
 
-The command engine is decoupled into two independent interfaces:
+See `docs/verification.md` for release validation and remaining verification boundaries.
 
-1. **Parser (`BaseCommandParser`)**:
-   - `parse(text: str) -> Command`
-   - In V1: `RuleBasedCommandParser` matches deterministic patterns and keywords.
-   - In V4 (Future): An AI parser (e.g. LLM JSON-function calling) can implement `BaseCommandParser` and emit the exact same `Command(action, target)` structure without changing any downstream code.
-2. **Executor (`CommandExecutor`)**:
-   - Consumes only structured `Command` objects, agnostic of how the command was parsed (rule-based, AI, voice, or webhook).
+Local voice recognition uses the bundled multilingual Whisper small model on CPU (int8). Click the microphone to switch the chat input into a live speech bar with an audio-driven waveform. The recognized text appears after you finish speaking. Cancel restores the typed input; successful speech runs through voice-specific command matching, and failed commands retain their text for correction. Registered phrases, including disabled phrases, take precedence over browser shortcuts. Free-form browser queries and song titles are omitted from persistent command history.
 
----
+Prepare the local model when setting up a fresh checkout (download occurs only during setup/build, never while listening):
 
-## Security
+```powershell
+.venv\Scripts\python.exe release/prepare_voice_model.py
+.venv\Scripts\python.exe release/prepare_multilingual_voice.py
+```
 
-This application enforces strict security principles:
+The release bundles the model. Spoken application aliases such as “open Google Chrome” and “open note pad” resolve to enabled registered commands. Typed phrases still match exactly. Audio remains in memory and is discarded after each utterance. Recognition works offline; requested YouTube playback/web search still requires internet.
 
-1. **No Arbitrary Shell Execution**: User text is **never** passed into `subprocess.Popen(..., shell=True)` or `cmd.exe /c`.
-2. **Strict Whitelist**: Only predefined application targets (`chrome`, `notepad`, `calculator`, `explorer`, `vscode`) and validated URLs (`https://`) can be launched.
-3. **Graceful Failures**: If a user enters unrecognized or malicious commands (e.g. `rm -rf`, `delete everything`, `powershell ...`), the parser marks the command as `ActionType.UNKNOWN` and the pet responds politely without executing anything.
+Voice commands wait for at least 1.5 seconds of trailing silence before execution. Short pauses stay within the same command. The 60-second recording safety limit rejects an incomplete command instead of executing it.
 
----
+Tamil and English can be mixed in voice commands, for example:
 
-## Future Roadmap
+- `Shape of You பாட்டு play பண்ணு` → play Shape of You on YouTube.
+- `Chrome open பண்ணு` or `குரோம் ஓபன் பண்ணுங்க` → open Chrome.
+- `வாத்தி கம்மிங் பாட்டு போடு` → search/play the Tamil song title.
+- `சென்னை weather search பண்ணு` → search the mixed-language query.
 
-The application architecture is prepared for future extension:
+Recognition automatically detects the spoken language and transcribes it without translation. English brand/song names can remain in English or use the explicit Tamil aliases. Command matching supports the documented Tamil/Tanglish verbs rather than arbitrary natural-language requests. The waveform follows live microphone audio; the bar shows **Recognizing…** during local processing, which can take several seconds on CPU. Cancel suppresses late results. Typed matching and disabled/custom-command precedence remain unchanged.
 
-- **V2**: Natural-language AI command parser (local or cloud LLM replacing `RuleBasedCommandParser`).
-- **V3**: Desktop automation, pet personality moods, context memory, and system notifications.
+The multilingual model is pinned to a verified [faster-whisper small revision](https://huggingface.co/Systran/faster-whisper-small/tree/536b0662742c02347bc0e980a01041f333bce120). Setup downloads about 486 MB; listening never accesses the model hub or uploads audio. The legacy English Vosk path remains available to developers with `VOICE_MULTILINGUAL=False`.
+
+See [docs/structure-audit.md](docs/structure-audit.md) for the file tree, entry points, dependency audit, cleanup decisions and current packaging gaps.

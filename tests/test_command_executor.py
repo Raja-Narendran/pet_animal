@@ -12,6 +12,8 @@ def mock_launcher():
     launcher = MagicMock(spec=BaseLauncher)
     launcher.open_application.return_value = (True, "Opening Chrome...")
     launcher.open_url.return_value = (True, "Opening YouTube...")
+    launcher.search_web.return_value = (True, "Searching for 'python' on Google...")
+    launcher.play_youtube.return_value = (True, "Playing 'shape of you' on YouTube...")
     return launcher
 
 
@@ -83,3 +85,41 @@ def test_execute_application_failure(mock_launcher):
     assert result.success is False
     assert "couldn't find" in result.message
     assert result.pet_state == "error"
+
+
+def test_execute_search_web(executor, mock_launcher):
+    cmd = Command(action=ActionType.SEARCH_WEB, target="python")
+    result = executor.execute(cmd)
+
+    mock_launcher.search_web.assert_called_once_with("python")
+    assert result.success is True
+    assert result.action == ActionType.SEARCH_WEB
+    assert "Searching for 'python'" in result.message
+
+
+def test_execute_search_web_empty(executor, mock_launcher):
+    cmd = Command(action=ActionType.SEARCH_WEB, target="")
+    result = executor.execute(cmd)
+
+    mock_launcher.search_web.assert_not_called()
+    assert result.success is False
+    assert "What would you like me to search for?" in result.message
+
+
+def test_execute_play_music(executor, mock_launcher):
+    cmd = Command(action=ActionType.PLAY_MUSIC, target="shape of you")
+    result = executor.execute(cmd)
+
+    mock_launcher.play_youtube.assert_called_once_with("shape of you")
+    assert result.success is True
+    assert result.action == ActionType.PLAY_MUSIC
+    assert "Playing 'shape of you'" in result.message
+
+
+def test_execute_play_music_empty(executor, mock_launcher):
+    cmd = Command(action=ActionType.PLAY_MUSIC, target="")
+    result = executor.execute(cmd)
+
+    mock_launcher.play_youtube.assert_not_called()
+    assert result.success is False
+    assert "What song would you like me to play?" in result.message

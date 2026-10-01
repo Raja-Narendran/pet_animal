@@ -1,6 +1,6 @@
 """Sprite sheet slicing and animation frame manager."""
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QRect
 from ..config.settings import settings

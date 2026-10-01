@@ -8,6 +8,7 @@ Security guarantee:
 import os
 import shutil
 import subprocess
+import urllib.parse
 import webbrowser
 from abc import ABC, abstractmethod
 from typing import Tuple, Optional
@@ -29,6 +30,14 @@ class BaseLauncher(ABC):
     def open_url(self, url: str) -> Tuple[bool, str]:
         """Open a URL in the user's default browser."""
         pass
+
+    def search_web(self, query: str) -> Tuple[bool, str]:
+        """Search the web using default browser and search engine."""
+        return False, "Not implemented"
+
+    def play_youtube(self, song_name: str) -> Tuple[bool, str]:
+        """Search and play a song on YouTube."""
+        return False, "Not implemented"
 
 
 class WindowsLauncher(BaseLauncher):
@@ -171,3 +180,35 @@ class WindowsLauncher(BaseLauncher):
         except Exception as e:
             logger.exception(f"Error opening URL {url}: {e}")
             return False, f"Failed to open {friendly_name}: {e}"
+
+    def search_web(self, query: str) -> Tuple[bool, str]:
+        """Opens default browser and searches the query using Google."""
+        query = query.strip()
+        if not query:
+            return False, "Please specify a search query."
+
+        try:
+            encoded_query = urllib.parse.quote_plus(query)
+            search_url = settings.DEFAULT_SEARCH_ENGINE_URL.format(query=encoded_query)
+            logger.info(f"Opening Google search in default browser: {search_url}")
+            opened = webbrowser.open(search_url)
+            if opened:
+                return True, f"Searching for '{query}' on Google..."
+            return False, "Could not open browser for web search."
+        except Exception as e:
+            logger.exception(f"Error executing web search for '{query}': {e}")
+            return False, f"Failed to search: {e}"
+
+    def play_youtube(self, song_name: str) -> Tuple[bool, str]:
+        """Automates searching and playing the song on YouTube, skipping ads."""
+        from .youtube_automation import YouTubeAutomationService
+        return YouTubeAutomationService.play_song(song_name)
+
+    def open_registered_url(self, url: str) -> Tuple[bool, str]:
+        """Open only a URL validated by the registered action schema."""
+        from ..core.application import ApplicationCore
+        ApplicationCore.validate_action('url', url)
+        try:
+            return (True, 'Opening website…') if webbrowser.open(url) else (False, 'Could not open the browser.')
+        except Exception:
+            return False, 'Could not open the browser.'

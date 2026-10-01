@@ -94,5 +94,5 @@ class VoiceButton(QPushButton):
         self._is_listening = False
         self.setEnabled(False)
         self.setStyleSheet(self.STYLE_DISABLED)
-        self.setToolTip("Voice input unavailable (install SpeechRecognition + PyAudio)")
+        self.setToolTip("Local voice unavailable (check Vosk model and microphone dependencies)")
         self.setCursor(Qt.CursorShape.ForbiddenCursor)

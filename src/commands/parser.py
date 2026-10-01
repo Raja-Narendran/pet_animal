@@ -67,7 +67,58 @@ class RuleBasedCommandParser(BaseCommandParser):
         if cleaned in self.HELP_TRIGGERS:
             return Command(action=ActionType.SHOW_HELP, raw_input=text)
 
-        # 3. Check for verb prefixes (e.g., 'open chrome', 'launch notepad')
+        # 3. Check for web search triggers
+        search_prefixes = (
+            "search for ",
+            "search on google ",
+            "search google for ",
+            "search google ",
+            "search ",
+            "look up ",
+            "find ",
+            "google ",
+        )
+        if cleaned in ("search", "search for", "look up", "find"):
+            logger.info("Resolved to empty SEARCH_WEB command.")
+            return Command(action=ActionType.SEARCH_WEB, target="", raw_input=text)
+
+        for s_prefix in search_prefixes:
+            if cleaned.startswith(s_prefix):
+                search_query = cleaned[len(s_prefix):].strip()
+                if search_query:
+                    logger.info(f"Resolved to SEARCH_WEB: '{search_query}'")
+                    return Command(
+                        action=ActionType.SEARCH_WEB,
+                        target=search_query,
+                        raw_input=text,
+                    )
+
+        # 4. Check for play music / YouTube triggers
+        music_prefixes = (
+            "play on youtube ",
+            "youtube play ",
+            "play song ",
+            "play music ",
+            "play ",
+        )
+        if cleaned in ("play", "play song", "play music"):
+            logger.info("Resolved to empty PLAY_MUSIC command.")
+            return Command(action=ActionType.PLAY_MUSIC, target="", raw_input=text)
+
+        for m_prefix in music_prefixes:
+            if cleaned.startswith(m_prefix):
+                song_candidate = cleaned[len(m_prefix):].strip()
+                if song_candidate.endswith(" on youtube"):
+                    song_candidate = song_candidate[:-11].strip()
+                if song_candidate:
+                    logger.info(f"Resolved to PLAY_MUSIC: '{song_candidate}'")
+                    return Command(
+                        action=ActionType.PLAY_MUSIC,
+                        target=song_candidate,
+                        raw_input=text,
+                    )
+
+        # 5. Check for verb prefixes (e.g., 'open chrome', 'launch notepad')
         target_candidate = cleaned
         has_verb_prefix = False
 
@@ -80,7 +131,7 @@ class RuleBasedCommandParser(BaseCommandParser):
                 has_verb_prefix = True
                 break
 
-        # 4. Check if target candidate matches supported apps
+        # 6. Check if target candidate matches supported apps
         if target_candidate in self.APP_TARGET_MAP:
             normalized_app = self.APP_TARGET_MAP[target_candidate]
             logger.info(f"Resolved to OPEN_APPLICATION: {normalized_app}")
@@ -90,7 +141,7 @@ class RuleBasedCommandParser(BaseCommandParser):
                 raw_input=text,
             )
 
-        # 5. Check if target candidate matches supported URLs
+        # 7. Check if target candidate matches supported URLs
         if target_candidate in self.URL_TARGET_MAP:
             target_url = self.URL_TARGET_MAP[target_candidate]
             logger.info(f"Resolved to OPEN_URL: {target_url}")

@@ -8,6 +8,8 @@ class ActionType(str, Enum):
     """Normalized action types supported by the desktop companion."""
     OPEN_APPLICATION = "OPEN_APPLICATION"
     OPEN_URL = "OPEN_URL"
+    SEARCH_WEB = "SEARCH_WEB"
+    PLAY_MUSIC = "PLAY_MUSIC"
     SHOW_HELP = "SHOW_HELP"
     EMPTY = "EMPTY"
     UNKNOWN = "UNKNOWN"
