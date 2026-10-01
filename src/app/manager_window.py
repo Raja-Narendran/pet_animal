@@ -1,6 +1,5 @@
 """Native Manager with six pages, shared services, and Figma-inspired tokens."""
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtCore import Qt, QSize
@@ -8,11 +7,10 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QPushButton, QListWidget, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QLineEdit, QComboBox, QDialog, QFormLayout,
-    QLayout, QDialogButtonBox, QTextEdit, QCheckBox, QSpinBox, QDoubleSpinBox, QFileDialog,
+    QLayout, QDialogButtonBox, QTextEdit, QCheckBox, QFileDialog,
     QMessageBox, QInputDialog, QProgressBar, QSlider)
 from ..core.application import DEFAULT_PET, identifier
 from ..config.settings import settings
-from ..utils.sprite import SpriteManager
 
 
 PALETTES = {

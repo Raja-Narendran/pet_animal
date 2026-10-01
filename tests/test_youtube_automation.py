@@ -1,6 +1,5 @@
 """Unit tests for YouTubeAutomationService supporting existing-browser playback and ad-skipping."""
 from unittest.mock import MagicMock, patch
-import pytest
 from src.services.youtube_automation import YouTubeAutomationService
 
 

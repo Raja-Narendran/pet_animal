@@ -7,8 +7,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
 )
-from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QBrush, QPen, QMouseEvent
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QTimer, QPoint
+from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QMouseEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPoint
 from .voice_button import VoiceButton
 from .audio_waveform import AudioWaveform
 from ..services.voice_input import VoiceInputWorker, SPEECH_AVAILABLE

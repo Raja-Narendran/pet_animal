@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon,
     QApplication,
 )
-from PyQt6.QtGui import QAction, QIcon, QCursor
-from PyQt6.QtCore import Qt, QPoint, QTimer
+from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtCore import Qt, QPoint
 
 from ..components.pet import PetWidget
 from ..components.command_box import CommandBoxWidget
@@ -65,7 +65,7 @@ class PetWindow(QWidget):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(12, 6, 12, 12)
         main_layout.setSpacing(6)
-        main_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
 
         # 1. Subtle top control bar (hidden until hovered)
         self.control_bar = QWidget(self)
@@ -124,19 +124,13 @@ class PetWindow(QWidget):
 
         main_layout.addWidget(self.control_bar, alignment=Qt.AlignmentFlag.AlignRight)
 
-        # 2. Response speech bubble
-        self.response_bubble = ResponseBubbleWidget(self)
-        self.response_bubble.bubble_shown.connect(self._reanchor_pet)
-        self.response_bubble.bubble_hidden.connect(self._reanchor_pet)
-        main_layout.addWidget(self.response_bubble, alignment=Qt.AlignmentFlag.AlignCenter)
-
-        # 3. Interactive Pet Widget
+        # 2. Interactive Pet Widget
         self.pet = PetWidget(parent=self)
         self.pet.pet_clicked.connect(self.toggle_command_box)
         self.pet.drag_finished.connect(self._on_drag_finished)
-        main_layout.addWidget(self.pet, alignment=Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(self.pet, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        # 4. Command input box
+        # 3. Command input box
         self.command_box = CommandBoxWidget(self)
         self.command_box.command_submitted.connect(self._on_command_submitted)
         self.command_box.voice_command_submitted.connect(self._on_command_submitted)
@@ -144,7 +138,13 @@ class PetWindow(QWidget):
         self.command_box.voice_error.connect(self._on_voice_error)
         self.command_box.expand_clicked.connect(self.restore_pet)
         self.command_box.drag_finished.connect(self._on_drag_finished)
-        main_layout.addWidget(self.command_box, alignment=Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(self.command_box, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        # 4. Response speech bubble as standalone floating window above companion
+        self.response_bubble = ResponseBubbleWidget(self)
+        self.response_bubble.bubble_shown.connect(self._reanchor_pet)
+        self.response_bubble.bubble_hidden.connect(self._reanchor_pet)
+        self._ensure_layout_width()
 
     def _init_tray_icon(self) -> None:
         """Initializes system tray icon for background companion management."""
@@ -243,11 +243,17 @@ class PetWindow(QWidget):
         self.control_bar.show()
 
         self.adjustSize()
+        self._ensure_layout_width()
         new_y = old_bottom - self.height()
         self.move(self.x(), new_y)
         self._keep_on_screen()
         self._update_pet_anchor()
         logger.info("Floating pet restored from minimized state")
+
+    def _ensure_layout_width(self) -> None:
+        """Ensures the companion window maintains consistent width so pet does not shift horizontally."""
+        desired_w = max(self.command_box.width(), self.pet.width()) + 24
+        self.setFixedWidth(desired_w)
 
     def _update_pet_anchor(self) -> None:
         """Updates the stored global screen position of the pet companion."""
@@ -255,27 +261,13 @@ class PetWindow(QWidget):
             self._pet_anchor = self.pet.mapToGlobal(QPoint(0, 0))
 
     def _reanchor_pet(self) -> None:
-        """Adjusts window geometry while keeping the pet at its exact global coordinates."""
+        """Ensures pet companion remains anchored at its stored global coordinates."""
         if not self.pet.isVisible() or self._pet_anchor is None:
-            if self.layout():
-                self.layout().invalidate()
-                self.layout().activate()
-            self.resize(self.sizeHint())
             return
-        self._is_reanchoring = True
-        try:
-            if self.layout():
-                self.layout().invalidate()
-                self.layout().activate()
-            self.resize(self.sizeHint())
-            if self.layout():
-                self.layout().activate()
-            new_local = self.pet.pos()
-            target_x = self._pet_anchor.x() - new_local.x()
-            target_y = self._pet_anchor.y() - new_local.y()
-            self.move(target_x, target_y)
-        finally:
-            self._is_reanchoring = False
+        current = self.pet.mapToGlobal(QPoint(0, 0))
+        diff = self._pet_anchor - current
+        if diff.manhattanLength() > 0:
+            self.move(self.pos() + diff)
 
     def toggle_command_box(self) -> None:
         """Shows or hides the command input box while keeping pet position constant."""
@@ -284,6 +276,8 @@ class PetWindow(QWidget):
         else:
             self.command_box.show()
             self.command_box.focus_input()
+        self.adjustSize()
+        self._ensure_layout_width()
         self._reanchor_pet()
 
     def show_help(self) -> None:
@@ -292,7 +286,6 @@ class PetWindow(QWidget):
         result = self.executor.execute(cmd)
         self.response_bubble.show_message(result.message)
         self.pet.set_state(result.pet_state, temporary_ms=5000)
-        self._reanchor_pet()
 
     def _on_command_submitted(self, text: str) -> None:
         """Handles submitted user command."""
@@ -309,7 +302,6 @@ class PetWindow(QWidget):
         if command.action == ActionType.PLAY_MUSIC and command.target.strip():
             self.pet.set_state("working")
             self.response_bubble.show_message(f"Finding '{command.target}' on YouTube...")
-            self._reanchor_pet()
 
             from ..services.youtube_worker import YouTubePlayWorker
             self._yt_worker = YouTubePlayWorker(command.target.strip(), parent=self)
@@ -323,31 +315,25 @@ class PetWindow(QWidget):
         # Show response and update pet state
         self.response_bubble.show_message(result.message)
         self.pet.set_state(result.pet_state, temporary_ms=3000)
-        self._reanchor_pet()
 
     def _on_youtube_playback_started(self, message: str) -> None:
         """Called when YouTube video is auto-clicked and starts playing."""
         self.response_bubble.show_message(message)
         self.pet.set_state("success", temporary_ms=4000)
-        self._reanchor_pet()
 
     def _on_youtube_playback_failed(self, message: str) -> None:
         """Called when YouTube playback encounters an error."""
         self.response_bubble.show_message(message)
         self.pet.set_state("error", temporary_ms=3000)
-        self._reanchor_pet()
 
     def _on_voice_started(self) -> None:
         """Called when microphone starts listening for voice input."""
         self.pet.set_state("thinking")
-        # Listening state is shown inline in the command box.
-        self._reanchor_pet()
 
     def _on_voice_error(self, message: str) -> None:
         """Called when voice input encounters an error."""
         self.response_bubble.show_message(f"⚠ {message}", timeout_ms=4000)
         self.pet.set_state("error", temporary_ms=3000)
-        self._reanchor_pet()
 
     def _show_context_menu(self, pos: QPoint) -> None:
         """Right-click contextual menu on the companion."""
@@ -398,9 +384,27 @@ class PetWindow(QWidget):
     def showEvent(self, event) -> None:
         """Clamp the complete window after its initial layout is shown."""
         super().showEvent(event)
+        self._ensure_layout_width()
         self._keep_on_screen()
-        if self._pet_anchor is None:
-            self._update_pet_anchor()
+        self._update_pet_anchor()
+
+    def moveEvent(self, event) -> None:
+        """Keeps response bubble aligned with pet companion when moved."""
+        super().moveEvent(event)
+        if hasattr(self, "response_bubble") and self.response_bubble.isVisible():
+            self.response_bubble.update_position(self)
+
+    def hideEvent(self, event) -> None:
+        """Hides speech bubble when companion window is hidden."""
+        super().hideEvent(event)
+        if hasattr(self, "response_bubble"):
+            self.response_bubble.hide()
+
+    def closeEvent(self, event) -> None:
+        """Closes speech bubble when companion window is closed."""
+        if hasattr(self, "response_bubble"):
+            self.response_bubble.close()
+        super().closeEvent(event)
 
     def _keep_on_screen(self) -> None:
         """Fit the window within the available area of its current screen."""
@@ -427,6 +431,7 @@ class PetWindow(QWidget):
     # --- Position Persistence ---
     def _on_drag_finished(self, new_pos: QPoint) -> None:
         """Called when user completes dragging the companion."""
+        self._keep_on_screen()
         self._update_pet_anchor()
         self._save_position()
 
