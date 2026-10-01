@@ -289,14 +289,14 @@ class PetWindow(QWidget):
 
     def _on_command_submitted(self, text: str) -> None:
         """Handles submitted user command."""
-        logger.info(f"Command received: '{text}'")
+        logger.info('Command received.')
         
         # Set pet to thinking/working animation while executing
         self.pet.set_state("working")
 
         # Parse command
         command = self.parser.parse(text)
-        logger.info(f"Command parsed: action={command.action.value}, target='{command.target}'")
+        logger.info('Command parsed: action=%s', command.action.value)
 
         # Execute command
         if command.action == ActionType.PLAY_MUSIC and command.target.strip():

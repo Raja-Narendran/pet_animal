@@ -45,7 +45,7 @@ def test_migration_restart_and_memory_crud(tmp_path):
     core.close()
     core = ApplicationCore(tmp_path, Launcher())
     assert core.get_memory(key)['memory_value'] == 'Nova'
-    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 1
+    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 2
     assert core.db.execute('PRAGMA foreign_keys').fetchone()[0] == 1
     core.delete_memory(key)
     assert core.memories() == []

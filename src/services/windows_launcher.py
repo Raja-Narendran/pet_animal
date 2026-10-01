@@ -46,9 +46,10 @@ class WindowsLauncher(BaseLauncher):
     # Whitelist of allowed application targets
     SUPPORTED_APPS = {"chrome", "notepad", "calculator", "explorer", "vscode"}
 
-    def __init__(self):
+    def __init__(self, registered_application_lookup=None):
         self._vscode_path: Optional[str] = None
         self._chrome_path: Optional[str] = None
+        self.registered_application_lookup = registered_application_lookup
 
     def find_vscode(self) -> Optional[str]:
         """Locates VS Code executable via PATH or standard installation directories."""
@@ -93,7 +94,23 @@ class WindowsLauncher(BaseLauncher):
         app_key = app_key.lower().strip()
 
         if app_key not in self.SUPPORTED_APPS:
-            logger.warning(f"Rejected unsupported application key: {app_key}")
+            import re
+            from .software_discovery import ApplicationValidator, ValidationStatus
+            if re.fullmatch(r'app-[0-9a-f-]{36}', app_key) and self.registered_application_lookup:
+                app = self.registered_application_lookup(app_key)
+                if app is not None and app.id == app_key:
+                    if not app.enabled:
+                        return False, f'{app.name} is currently disabled.'
+                    status, path = ApplicationValidator.validate_registered_path(app.executable_path)
+                    if app.needs_repair or status != ValidationStatus.VALID:
+                        return False, f'{app.name} could not be found or is unsafe. Rediscover it in Commands.'
+                    try:
+                        subprocess.Popen([path], shell=False)
+                        logger.info('Launching approved application')
+                        return True, f'Opening {app.name}…'
+                    except OSError:
+                        return False, f'{app.name} could not be opened. Rediscover it in Commands.'
+            logger.warning('Rejected unsupported application key')
             return False, f"I don't know how to open '{app_key}'."
 
         try:
@@ -190,13 +207,13 @@ class WindowsLauncher(BaseLauncher):
         try:
             encoded_query = urllib.parse.quote_plus(query)
             search_url = settings.DEFAULT_SEARCH_ENGINE_URL.format(query=encoded_query)
-            logger.info(f"Opening Google search in default browser: {search_url}")
+            logger.info('Opening a web search in the default browser.')
             opened = webbrowser.open(search_url)
             if opened:
                 return True, f"Searching for '{query}' on Google..."
             return False, "Could not open browser for web search."
         except Exception as e:
-            logger.exception(f"Error executing web search for '{query}': {e}")
+            logger.warning('Web search failed.')
             return False, f"Failed to search: {e}"
 
     def play_youtube(self, song_name: str) -> Tuple[bool, str]:

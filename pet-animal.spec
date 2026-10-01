@@ -1,19 +1,25 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
+from PyInstaller.utils.hooks import collect_dynamic_libs
 
 
 a = Analysis(
     ['src/main.py'],
     pathex=[],
-    binaries=[],
-    datas=[('petimage', 'petimage')],
+    binaries=collect_dynamic_libs('vosk'),
+    datas=[('petimage', 'petimage'), ('assets/ui', 'assets/ui'),
+           ('assets/speech', 'assets/speech'),
+           ('src/database/migrations', 'src/database/migrations')],
     hiddenimports=[],
-    hookspath=[],
+    hookspath=['release/hooks'],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['release/runtime_diagnostics.py'],
     excludes=[],
     noarchive=False,
     optimize=0,
 )
+# Some PATH installations expose an ICU build incompatible with Qt's exports.
+a.binaries = [entry for entry in a.binaries if Path(entry[0]).name.lower() not in {'icuuc.dll', 'icudt78.dll'}]
 pyz = PYZ(a.pure)
 
 exe = EXE(

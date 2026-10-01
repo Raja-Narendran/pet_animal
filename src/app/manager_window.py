@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLa
     QMessageBox, QInputDialog, QProgressBar, QSlider)
 from ..core.application import DEFAULT_PET, identifier
 from ..config.settings import settings
+from .software_discovery import SoftwareDiscoveryState, SoftwareDiscoveryPanel
 
 
 PALETTES = {
@@ -45,6 +46,7 @@ class ManagerWindow(QMainWindow):
     def __init__(self, core, controller):
         super().__init__()
         self.core, self.controller = core, controller
+        self.software_state = SoftwareDiscoveryState(self)
         self.setWindowTitle('Pet Animal Manager')
         self.resize(1200, 900)
         self.setMinimumSize(850, 650)
@@ -339,7 +341,7 @@ class ManagerWindow(QMainWindow):
         return dialog, form, buttons
 
     def page_commands(self):
-        self.heading('Commands', 'Exact phrases. Registered actions. No arbitrary scripts.', [button('New command', self.edit_command, True, 'zap')])
+        self.heading('Commands', 'Registered phrases and natural requests for your enabled actions.', [button('New command', self.edit_command, True, 'zap')])
         records = self.core.commands()
         table = self.table(['Command', 'Phrases', 'Action', 'Enabled'], [(r['name'], ' · '.join(r['phrases']), r['target'], 'Yes' if r['enabled'] else 'No') for r in records])
         self.content_layout.addWidget(table)
@@ -354,6 +356,31 @@ class ManagerWindow(QMainWindow):
         row.addWidget(button('Delete selected', lambda: selected(lambda r: self.confirm('Delete command', 'Delete this command and all its phrases?', lambda: self.core.delete_command(r['id'])))))
         self.content_layout.addWidget(bar)
         self.content_layout.addWidget(label('Reserved: help · remember my name as <name> · what is my name. Memory writes require confirmation.', 'muted'))
+        frame, layout = self.card('Test command understanding')
+        self.smart_input = QLineEdit()
+        self.smart_input.setMaxLength(500)
+        self.smart_input.setPlaceholderText('Can you open Chrome please?')
+        self.smart_result = label('Test a phrase to see its meaning. Nothing will be executed.', 'muted')
+        def test_understanding():
+            result = self.core.interpret(self.smart_input.text())
+            intent = result.intent
+            command = next((r for r in self.core.commands() if r['id'] == result.command_id), None)
+            self.smart_result.setText('\n'.join([
+                'Intent: ' + (intent.intent.value if intent else 'UNKNOWN'),
+                'Target: ' + (intent.target or '—' if intent else '—'),
+                'Resolved command: ' + (command['name'] if command else '—'),
+                f'Confidence: {result.confidence:.0%}',
+                'Match: ' + result.reason.value,
+                'Execution: Not executed',
+            ]))
+        layout.addWidget(self.smart_input)
+        self.smart_test_button = button('Test Understanding', test_understanding)
+        layout.addWidget(self.smart_test_button)
+        layout.addWidget(self.smart_result)
+        self.smart_input.returnPressed.connect(test_understanding)
+        self.content_layout.addWidget(frame)
+        self.software_panel = SoftwareDiscoveryPanel(self)
+        self.content_layout.addWidget(self.software_panel)
 
     def edit_command(self, record=None):
         if isinstance(record, bool):
@@ -364,7 +391,10 @@ class ManagerWindow(QMainWindow):
         action.addItems(['application', 'url'])
         applications = QComboBox()
         from ..services.windows_launcher import WindowsLauncher
-        applications.addItems(sorted(WindowsLauncher.SUPPORTED_APPS))
+        for key in sorted(WindowsLauncher.SUPPORTED_APPS):
+            applications.addItem(key, key)
+        for app in self.core.list_registered_applications():
+            applications.addItem(app.name + (' (disabled)' if not app.enabled else ''), app.id)
         url = QLineEdit()
         url.setPlaceholderText('https://example.com')
         phrases = QTextEdit('\n'.join(record['phrases']) if record else '')
@@ -377,14 +407,18 @@ class ManagerWindow(QMainWindow):
         action.currentIndexChanged.connect(action_changed)
         if record:
             action.setCurrentText(record['action_type'])
-            applications.setCurrentText(record['target'])
+            index = applications.findData(record['target'])
+            if index < 0 and record['action_type'] == 'application':
+                applications.addItem('Removed application — choose a replacement', record['target'])
+                index = applications.count() - 1
+            applications.setCurrentIndex(index)
             url.setText(record['target'] if record['action_type'] == 'url' else '')
         for title, widget in [('Name', name), ('Action', action), ('Application', applications), ('HTTPS URL', url), ('Phrases, one per line', phrases), ('Status', enabled)]:
             form.addRow(title, widget)
         action_changed()
         def save():
             def perform():
-                target = applications.currentText() if action.currentText() == 'application' else url.text().strip()
+                target = applications.currentData() if action.currentText() == 'application' else url.text().strip()
                 self.core.save_command(name.text(), action.currentText(), target, [p.strip() for p in phrases.toPlainText().splitlines() if p.strip()], enabled.isChecked(), record['id'] if record else None)
                 dialog.accept()
             self.guard(perform)

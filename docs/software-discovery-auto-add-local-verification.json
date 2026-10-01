@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "candidates": 281,
+  "valid": 71,
+  "first_refresh": {
+    "added": 71,
+    "already_added": 0,
+    "commands_created": 71,
+    "invalid": 210,
+    "failed": 0
+  },
+  "repeated_refresh": {
+    "added": 0,
+    "already_added": 71,
+    "commands_created": 0,
+    "invalid": 210,
+    "failed": 0
+  },
+  "scan_seconds": 2.023,
+  "registration_seconds": 1.383,
+  "applications_launched": 0
+}

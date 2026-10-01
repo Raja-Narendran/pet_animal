@@ -163,8 +163,7 @@ class ApplicationController(QObject):
     def submit_voice(self, phrase):
         if self._shutting_down:
             return
-        canonical = self.core.resolve_voice_phrase(phrase)
-        result = self.execute(canonical)
+        result = self.execute(phrase)
         self._show_result(result)
         # Retain failed transcription for correction instead of silently discarding it.
         self.pet.command_box.input_field.setText('' if result['success'] else phrase)
@@ -219,6 +218,7 @@ class ApplicationController(QObject):
         if self._shutting_down:
             return
         self._shutting_down = True
+        self.manager.software_state.shutdown()
         self.pet.pet.anim_timer.stop()
         self.pet.tray_icon.hide()
         voice_worker = self.pet.command_box._voice_worker

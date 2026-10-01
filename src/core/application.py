@@ -3,12 +3,24 @@ import json
 import re
 import sqlite3
 import uuid
+from dataclasses import asdict, replace
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from . import secrets
 from ..config.settings import settings
 from ..services.windows_launcher import WindowsLauncher
+from ..services.software_discovery import DiscoveredApplication, RegisteredApplication, ApplicationValidator, ValidationStatus, DiscoverySource
+from ..services.software_discovery.validator import canonical_path
+from ..commands.interpreter.patterns import APPLICATION_ALIASES, WEBSITE_ALIASES
+from ..commands.interpreter import (AUTO_EXECUTE_THRESHOLD, CommandIntent, InterpretationResult, IntentType, MatchReason,
+                                    RuleBasedIntentInterpreter, IntentResolver)
+from ..commands.interpreter.normalizer import normalize_input
+from ..commands.voice_phrases import normalize_mixed_voice
+from ..utils.logger import get_logger
+
+logger = get_logger('application')
 
 
 def identifier():
@@ -45,20 +57,29 @@ class ApplicationCore:
         self.db.execute('PRAGMA foreign_keys=ON')
         self.db.execute('PRAGMA trusted_schema=OFF')
         self.db.execute('PRAGMA journal_mode=WAL')
-        self.launcher = launcher or WindowsLauncher()
+        self.launcher = launcher if launcher is not None else WindowsLauncher()
+        self.interpreter = RuleBasedIntentInterpreter()
+        self.intent_resolver = IntentResolver()
         self.listeners = []
         version = self.db.execute('PRAGMA user_version').fetchone()[0]
-        if version > 1:
+        if version > 2:
             raise ValueError('This database requires a newer Pet Animal version.')
         if version == 0:
             migration = settings.BASE_DIR / 'src/database/migrations/001_initial.sql'
             self.db.executescript('BEGIN;\n' + migration.read_text(encoding='utf-8-sig') + '\nCOMMIT;')
+        if version < 2:
+            migration = settings.BASE_DIR / 'src/database/migrations/002_registered_applications.sql'
+            self.db.executescript('BEGIN;\n' + migration.read_text(encoding='utf-8-sig') + '\nCOMMIT;')
         self._seed()
+        if isinstance(self.launcher, WindowsLauncher):
+            self.launcher.registered_application_lookup = self.get_registered_application
+        self._refresh_application_aliases()
 
     def close(self):
         self.db.close()
 
     def changed(self):
+        self._refresh_application_aliases()
         for callback in tuple(self.listeners):
             callback()
 
@@ -196,15 +217,182 @@ class ApplicationCore:
             row['phrases'] = [p['phrase'] for p in self.rows('SELECT phrase FROM command_phrases WHERE command_id=? ORDER BY rowid', (row['id'],))]
         return records
 
+    def list_registered_applications(self):
+        return [RegisteredApplication(**dict(row, enabled=bool(row['enabled']), needs_repair=bool(row['needs_repair']),
+                aliases=tuple(item['alias'] for item in self.rows('SELECT alias FROM application_aliases WHERE application_id=? ORDER BY rowid', (row['id'],)))))
+                for row in self.rows('SELECT * FROM registered_applications ORDER BY name')]
+
+    def get_registered_application(self, application_id):
+        return next((app for app in self.list_registered_applications() if app.id == application_id), None)
+
+    def _validate_command_action(self, action, target, connection=None):
+        connection = connection or self.db
+        if action == 'application' and isinstance(target, str) and connection.execute(
+                'SELECT id FROM registered_applications WHERE id=?', (target,)).fetchone():
+            return
+        self.validate_action(action, target)
+
+    def _write_application_aliases(self, application_id, aliases):
+        if not isinstance(aliases, (list, tuple)) or not 1 <= len(aliases) <= 30:
+            raise ValueError('Enter 1–30 aliases.')
+        reserved = {alias for names in (*APPLICATION_ALIASES.values(), *WEBSITE_ALIASES.values()) for alias in names}
+        prepared = [normalize(text(alias, 'Alias', 150)) for alias in aliases]
+        if len(set(prepared)) != len(prepared) or any(alias in reserved or not normalize_input(alias).valid for alias in prepared):
+            raise ValueError('Aliases must be unique and cannot conflict with built-in applications or websites.')
+        for alias in prepared:
+            if self.rows('SELECT id FROM application_aliases WHERE normalized_alias=? AND application_id<>?', (alias, application_id)):
+                raise ValueError('Application alias already registered: ' + alias)
+        self.db.execute('DELETE FROM application_aliases WHERE application_id=?', (application_id,))
+        for alias in prepared:
+            self.db.execute('INSERT INTO application_aliases VALUES (?,?,?,?,?)', (identifier(), application_id, alias, alias, now()))
+
+    def register_application(self, candidate, aliases=None, command_name=None, phrases=None, *, notify=True):
+        """Register after individual Add or the user-authorized bulk Refresh action."""
+        if not isinstance(candidate, DiscoveredApplication):
+            raise ValueError('Choose a discovered application.')
+        candidate = ApplicationValidator().validate(candidate)
+        if not candidate.launchable:
+            raise ValueError('This application cannot be registered: ' + candidate.validation_status.value)
+        name = text(candidate.name, 'Application name', 150)
+        path = canonical_path(candidate.executable_path)
+        if any(canonical_path(app.executable_path) == path for app in self.list_registered_applications()):
+            raise ValueError('This application is already registered.')
+        application_id, stamp = 'app-' + identifier(), now()
+        with self.db:
+            self.db.execute('INSERT INTO registered_applications VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                            (application_id, name, normalize(name), candidate.executable_path, candidate.publisher,
+                             candidate.version, candidate.icon_path, ','.join(source.value for source in candidate.sources or (candidate.source,)),
+                             1, 0, stamp, stamp))
+            self._write_application_aliases(application_id, aliases if aliases is not None else [name])
+            if phrases is not None:
+                self._write_command(identifier(), command_name or 'Open ' + name, 'application', application_id, phrases)
+        if notify:
+            self.changed()
+        logger.info('Application registered')
+        return application_id
+
+    def register_discovered_applications(self, candidates):
+        """User-clicked Refresh authorizes valid registrations; no executable is launched."""
+        applications = self.list_registered_applications()
+        paths = {canonical_path(app.executable_path): app for app in applications}
+        commands = self.commands()
+        targets = {command['target'] for command in commands if command['action_type'] == 'application'}
+        used_phrases = {normalize(phrase) for command in commands for phrase in command['phrases']}
+        used_aliases = {alias for names in (*APPLICATION_ALIASES.values(), *WEBSITE_ALIASES.values()) for alias in names}
+        used_aliases.update(alias for app in applications for alias in app.aliases)
+        summary = dict(added=0, already_added=0, commands_created=0, invalid=0, failed=0)
+        changed = False
+        for candidate in candidates:
+            try:
+                candidate = ApplicationValidator().validate(candidate)
+                if not candidate.launchable:
+                    summary['invalid'] += 1
+                    continue
+                path = canonical_path(candidate.executable_path)
+                existing = paths.get(path)
+                if existing and existing.id in targets:
+                    summary['already_added'] += 1
+                    continue
+                base = normalize(candidate.name)[:120]
+                request = normalize_input('open ' + base)
+                if not base or not request.valid or request.negated:
+                    base = 'application'
+                alias, suffix = base, 1
+                def phrases_for(value):
+                    return [verb + ' ' + value for verb in ('open', 'launch', 'start')]
+                while alias in used_aliases or any(phrase in used_phrases for phrase in phrases_for(alias)):
+                    alias = base + (' app' if suffix == 1 else f' app {suffix}')
+                    suffix += 1
+                phrases = phrases_for(alias)
+                if existing:
+                    with self.db:
+                        self._write_command(identifier(), 'Open ' + alias.title(), 'application', existing.id, phrases)
+                    summary['already_added'] += 1
+                    application_id = existing.id
+                else:
+                    candidate = replace(candidate, name=candidate.name.strip()[:150])
+                    application_id = self.register_application(candidate, aliases=[alias],
+                        command_name='Open ' + alias.title(), phrases=phrases, notify=False)
+                    summary['added'] += 1
+                    paths[path] = self.get_registered_application(application_id)
+                targets.add(application_id)
+                used_aliases.add(alias)
+                used_phrases.update(phrases)
+                summary['commands_created'] += 1
+                changed = True
+            except (ValueError, sqlite3.Error):
+                summary['failed'] += 1
+        if changed:
+            self.changed()
+        logger.info('Refresh registration completed: %d added, %d existing, %d invalid, %d failed',
+                    summary['added'], summary['already_added'], summary['invalid'], summary['failed'])
+        return summary
+
+    def update_application(self, application_id, name, aliases):
+        if not self.get_registered_application(application_id):
+            raise ValueError('Application is no longer registered.')
+        name = text(name, 'Application name', 150)
+        with self.db:
+            self._write_application_aliases(application_id, aliases)
+            self.db.execute('UPDATE registered_applications SET name=?,normalized_name=?,updated_at=? WHERE id=?',
+                            (name, normalize(name), now(), application_id))
+        self.changed()
+
+    def set_application_enabled(self, application_id, enabled):
+        app = self.get_registered_application(application_id)
+        if app is None:
+            raise ValueError('Application is no longer registered.')
+        if enabled and ApplicationValidator.validate_registered_path(app.executable_path)[0] != ValidationStatus.VALID:
+            raise ValueError('The executable needs repair. Rediscover and approve it again.')
+        with self.db:
+            self.db.execute('UPDATE registered_applications SET enabled=?,needs_repair=?,updated_at=? WHERE id=?',
+                            (int(bool(enabled)), 0 if enabled else int(app.needs_repair), now(), application_id))
+        self.changed()
+
+    def unregister_application(self, application_id):
+        # Keep phrases/history but disable associated commands. Installed files are untouched.
+        with self.db:
+            for command in self.commands():
+                if command['action_type'] == 'application' and command['target'] == application_id:
+                    self.db.execute('UPDATE commands SET enabled=0,updated_at=? WHERE id=?', (now(), command['id']))
+            self.db.execute('DELETE FROM registered_applications WHERE id=?', (application_id,))
+        self.changed()
+        logger.info('Application registration removed; related commands disabled')
+
+    def _refresh_application_aliases(self):
+        if not isinstance(self.interpreter, RuleBasedIntentInterpreter):
+            return
+        aliases = {key: set(names) for key, names in APPLICATION_ALIASES.items()}
+        applications = self.list_registered_applications()
+        display_counts = Counter(normalize(app.name) for app in applications)
+        reserved = {name for group in (*APPLICATION_ALIASES.values(), *WEBSITE_ALIASES.values()) for name in group}
+        for app in applications:
+            names = set(app.aliases)
+            display_name = normalize(app.name)
+            if (display_counts[display_name] == 1 and display_name not in reserved
+                    and not any(display_name in other.aliases for other in applications if other.id != app.id)):
+                names.add(display_name)
+            # Reuse simple open/launch/start command phrases as aliases where practical.
+            for command in self.commands():
+                if command['action_type'] == 'application' and command['target'] == app.id:
+                    for phrase in command['phrases']:
+                        match = re.fullmatch(r'(?:open|launch|start) (.+)', normalize_input(phrase).text)
+                        if match:
+                            names.add(match[1])
+            aliases[app.id] = names
+        self.interpreter.application_aliases = aliases
+
     def _write_command(self, command_id, name, action, target, phrases, enabled=True, builtin=False):
         name = text(name, 'Command name', 150)
-        self.validate_action(action, target)
+        self._validate_command_action(action, target)
         if not isinstance(phrases, list) or not 1 <= len(phrases) <= 30:
             raise ValueError('Enter 1–30 phrases.')
         normalized = [normalize(text(p, 'Phrase', 200)) for p in phrases]
         if len(set(normalized)) != len(normalized):
             raise ValueError('Duplicate phrases in this command.')
-        if any(p in ('help', 'what is my name') or p.startswith('remember my name as ') for p in normalized):
+        if any(p == 'help' or p.startswith('remember my name as ') or
+               ((intent := self.interpreter.interpret(p).intent) is not None and
+                intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY)) for p in normalized):
             raise ValueError('This phrase is reserved for memory or help.')
         for phrase in normalized:
             if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=? AND command_id<>?', (phrase, command_id)):
@@ -237,93 +425,145 @@ class ApplicationCore:
         return self.save_memory(category, 'My name', 'user.name', self.propose_memory(value), memory_id=existing['id'] if existing else None)
 
     def resolve_voice_phrase(self, phrase):
-        """Explicit spoken aliases only; exact registered/disabled phrases take precedence."""
+        """Compatibility helper; live typed and speech submission use interpret() directly."""
         if not isinstance(phrase, str) or len(phrase) > 500:
             return phrase
         normalized = normalize(phrase)
         if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=?', (normalized,)):
             return phrase
-        from ..commands.voice_phrases import normalize_mixed_voice
         translated = normalize_mixed_voice(phrase)
         # A canonical registered phrase also wins, especially when disabled.
         if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=?', (normalize(translated),)):
             return translated
-        normalized = normalize(translated)
-        aliases = {'google chrome': ('application', 'chrome'), 'chrome': ('application', 'chrome'),
-                   'note pad': ('application', 'notepad'), 'notepad': ('application', 'notepad'),
-                   'calculator': ('application', 'calculator'), 'calc': ('application', 'calculator'),
-                   'file explorer': ('application', 'explorer'), 'windows explorer': ('application', 'explorer'),
-                   'explorer': ('application', 'explorer'), 'vs code': ('application', 'vscode'),
-                   'visual studio code': ('application', 'vscode'), 'vscode': ('application', 'vscode'),
-                   'you tube': ('url', 'https://www.youtube.com'), 'youtube': ('url', 'https://www.youtube.com'),
-                   'google': ('url', 'https://www.google.com')}
-        candidate = re.sub(r'^(open|launch|start|run) (the )?', '', normalized)
-        action_target = aliases.get(candidate)
-        if action_target:
-            matches = [c for c in self.commands() if c['enabled'] and (c['action_type'], c['target']) == action_target]
-            if len(matches) == 1:
-                return matches[0]['phrases'][0]
+        result = self.interpret(phrase)
+        if result.matched and result.command_id and result.intent.intent in (IntentType.OPEN_APPLICATION, IntentType.OPEN_WEBSITE):
+            return self.rows('SELECT phrase FROM command_phrases WHERE command_id=? ORDER BY rowid', (result.command_id,))[0]['phrase']
         return translated
 
-    def execute(self, phrase, defer_browser=False):
-        if not isinstance(phrase, str) or len(phrase) > 500:
-            return dict(success=False, message='Command is too long.', pet_state='error')
+    def _registered_interpretation(self, phrase, reason):
+        found = self.rows('''SELECT c.* FROM commands c JOIN command_phrases p ON p.command_id=c.id
+                            WHERE p.normalized_phrase=?''', (normalize(phrase),))
+        if not found:
+            return None
+        record = found[0]
+        intent = self.intent_resolver.command_intent(record)
+        return InterpretationResult(bool(record['enabled']), intent, record['id'],
+                                    reason if record['enabled'] else MatchReason.DISABLED_COMMAND,
+                                    1.0 if reason == MatchReason.EXACT_PHRASE else 0.98)
+
+    def interpret(self, phrase):
+        """Parse only: no OS calls, database writes, history, or memory decryption."""
+        normalized_input = normalize_input(phrase)
+        if not normalized_input.valid:
+            return InterpretationResult(reason=MatchReason.INVALID_INPUT)
+        # Mandatory safety veto precedes matching, even for an exact custom phrase.
+        if normalized_input.negated:
+            return InterpretationResult(reason=MatchReason.NEGATED_COMMAND)
         normalized = normalize(phrase)
-        if normalized == 'what is my name':
+        if normalized in ('help', 'what is my name'):
+            kind = IntentType.SHOW_HELP if normalized == 'help' else IntentType.MEMORY_QUERY
+            intent = CommandIntent(kind, 'user.name' if kind == IntentType.MEMORY_QUERY else None, source='reserved')
+            return InterpretationResult(True, intent, reason=MatchReason.EXACT_PHRASE, confidence=1.0)
+        memory = re.fullmatch(r'remember\s+my\s+name\s+as\s+(.+)', phrase.strip(), re.IGNORECASE)
+        if memory:
+            intent = CommandIntent(IntentType.MEMORY_STORE, 'user.name', memory[1], source='reserved')
+            return InterpretationResult(True, intent, reason=MatchReason.EXACT_PHRASE, confidence=1.0)
+        registered = self._registered_interpretation(phrase, MatchReason.EXACT_PHRASE)
+        if registered is not None:
+            return registered
+        translated = normalize_mixed_voice(phrase)
+        registered = self._registered_interpretation(translated, MatchReason.VOICE_NORMALIZED)
+        if registered is not None:
+            return registered
+        result = self.interpreter.interpret(phrase)
+        if not result.matched:
+            return result
+        if result.intent is None:
+            return InterpretationResult(reason=MatchReason.UNKNOWN_INTENT)
+        if result.intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.SHOW_HELP):
+            if not AUTO_EXECUTE_THRESHOLD <= result.intent.confidence <= 1.0:
+                return InterpretationResult(False, result.intent, reason=MatchReason.LOW_CONFIDENCE, confidence=result.intent.confidence)
+            return result
+        return self.intent_resolver.resolve(result.intent, self.commands())
+
+    @staticmethod
+    def interpretation_message(result):
+        """Fixed responses never echo an unsupported raw input or private payload."""
+        if result.reason == MatchReason.NEGATED_COMMAND:
+            return 'Command cancelled. Nothing was executed.'
+        if result.reason == MatchReason.DISABLED_COMMAND:
+            return 'That command is disabled. Enable it in the Manager to use it.'
+        if result.reason in (MatchReason.AMBIGUOUS_TARGET, MatchReason.AMBIGUOUS_COMMAND):
+            return 'I found more than one possible match. Please use a registered phrase.'
+        if result.reason == MatchReason.LOW_CONFIDENCE:
+            names = {'vscode': 'VS Code', 'chrome': 'Chrome', 'explorer': 'File Explorer'}
+            name = names.get(result.intent.target, 'the registered command')
+            return f'Did you mean "Open {name}"?'
+        if result.reason == MatchReason.UNAVAILABLE_COMMAND:
+            return 'I understood your request, but that command is not currently available.'
+        if result.reason == MatchReason.INVALID_INPUT:
+            return 'Use a command of at most 500 characters without control characters.'
+        return 'Unsupported command. Type help to see registered phrases.'
+
+    def execute(self, phrase, defer_browser=False):
+        interpretation = self.interpret(phrase)
+        if interpretation.reason == MatchReason.INVALID_INPUT:
+            return dict(success=False, message=self.interpretation_message(interpretation), pet_state='error')
+        intent = interpretation.intent if interpretation.matched else None
+        if intent and intent.intent == IntentType.MEMORY_QUERY:
             memory = self.get_memory_by_key('user.name')
             return dict(success=bool(memory), message=memory['memory_value'] if memory else 'Your name has not been saved.', pet_state='success' if memory else 'idle')
-        match = re.fullmatch(r'remember\s+my\s+name\s+as\s+(.+)', phrase.strip(), re.IGNORECASE)
-        if match:
+        if intent and intent.intent == IntentType.MEMORY_STORE:
             try:
-                value = self.propose_memory(match[1])
+                value = self.propose_memory(intent.value)
                 return dict(success=False, message=f'Save your name as {value}?', confirmation=value, pet_state='thinking')
             except ValueError as error:
                 return dict(success=False, message=str(error), pet_state='error')
-        if normalized == 'help':
+        if intent and intent.intent == IntentType.SHOW_HELP:
             names = [c['phrases'][0] for c in self.commands() if c['enabled']]
             return dict(success=True, message='Commands: ' + ', '.join(names) + '\nBrowser: search <query>; play <song> on youtube\nMemory: remember my name as <name>; what is my name', pet_state='idle')
-        found = self.rows('''SELECT c.* FROM commands c JOIN command_phrases p ON p.command_id=c.id
-                            WHERE p.normalized_phrase=? AND c.enabled=1''', (normalized,))
+        found = self.rows('SELECT * FROM commands WHERE id=? AND enabled=1', (interpretation.command_id,)) if interpretation.matched else []
         command_id = None
-        # Registered phrases (including disabled ones) take precedence.
-        registered = self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=?', (normalized,))
-        if not registered:
-            match = re.fullmatch(r'(search for|search on google|search google for|search google|search|look up|find|google) (.+)', normalized)
-            action = 'search'
-            if not match:
-                match = re.fullmatch(r'(play on youtube|youtube play|play song|play music|play) (.+)', normalized)
-                action = 'music'
-            if match:
-                target = match[2]
-                if action == 'music' and target.endswith(' on youtube'):
-                    target = target[:-11].strip()
-                if target and not any(ord(c) < 32 for c in phrase):
-                    if defer_browser:
-                        return dict(success=True, message='Searching…' if action == 'search' else 'Finding your song…',
-                                    pet_state='working', browser_action=action, browser_target=target)
-                    try:
-                        handler = self.launcher.search_web if action == 'search' else self.launcher.play_youtube
-                        success, message = handler(target)
-                    except Exception:
-                        success, message = False, 'The browser action could not be executed.'
-                    return self.finish_browser_action(action, success, message)
         if not found:
-            success, message = False, 'Unsupported command. Type help to see registered phrases.'
+            success, message = False, self.interpretation_message(interpretation)
         else:
             record = found[0]
             command_id = record['id']
             try:
                 target = json.loads(record['action_config'])['target']
-                self.validate_action(record['action_type'], target)
-                if record['action_type'] == 'application':
-                    success, message = self.launcher.open_application(target)
+                self._validate_command_action(record['action_type'], target)
+                if intent.intent in (IntentType.WEB_SEARCH, IntentType.PLAY_MEDIA):
+                    action = 'search' if intent.intent == IntentType.WEB_SEARCH else 'music'
+                    if not intent.value or any(ord(c) < 32 for c in phrase):
+                        raise ValueError('Invalid browser value.')
+                    if defer_browser:
+                        return dict(success=True, message='Searching…' if action == 'search' else 'Finding your song…',
+                                    pet_state='working', browser_action=action, browser_target=intent.value)
+                    handler = self.launcher.search_web if action == 'search' else self.launcher.play_youtube
+                    try:
+                        success, message = handler(intent.value)
+                    except Exception:
+                        success, message = False, 'The browser action could not be executed.'
+                    return self.finish_browser_action(action, success, message)
+                elif record['action_type'] == 'application':
+                    app = self.get_registered_application(target)
+                    if app and not app.enabled:
+                        success, message = False, f'{app.name} is currently disabled.'
+                    elif app and (app.needs_repair or ApplicationValidator.validate_registered_path(app.executable_path)[0] != ValidationStatus.VALID):
+                        success, message = False, f'{app.name} could not be found or is unsafe. Rediscover it in Commands.'
+                    else:
+                        success, message = self.launcher.open_application(target)
                 else:
                     success, message = self.launcher.open_registered_url(target)
             except Exception:
                 success, message = False, 'The configured action could not be executed.'
         # Unsupported input and memory contents never enter history/logs.
+        trigger = '[unsupported command]'
+        if found:
+            trigger = normalize(phrase) if interpretation.reason == MatchReason.EXACT_PHRASE else normalize(
+                self.rows('SELECT phrase FROM command_phrases WHERE command_id=? ORDER BY rowid', (command_id,))[0]['phrase'])
         with self.db:
-            self.db.execute('INSERT INTO command_history VALUES (?,?,?,?,?,?)', (identifier(), command_id, normalized if found else '[unsupported command]', 'success' if success else 'failed', '' if success else message, now()))
+            self.db.execute('INSERT INTO command_history VALUES (?,?,?,?,?,?)', (identifier(), command_id, trigger, 'success' if success else 'failed', '' if success else message, now()))
         self.changed()
         return dict(success=success, message=message, pet_state='success' if success else 'error')
 
@@ -479,7 +719,8 @@ class ApplicationCore:
         self.changed()
 
     def export_configuration(self):
-        return dict(version=1, settings=self.app_settings(), commands=self.commands(), profiles=self.profiles())
+        return dict(version=1, settings=self.app_settings(), commands=self.commands(), profiles=self.profiles(),
+                    registered_applications=[asdict(app) for app in self.list_registered_applications()])
 
     def import_configuration(self, payload):
         if not isinstance(payload, dict) or payload.get('version') != 1:
@@ -495,8 +736,26 @@ class ApplicationCore:
             raise ValueError('Exactly one profile must be active.')
         # Append only; an active imported profile is an explicit switch, existing records survive.
         with self.db:
+            registrations = payload.get('registered_applications', [])
+            if not isinstance(registrations, list) or len(registrations) > 500:
+                raise ValueError('Invalid application registrations.')
+            remap = {}
+            for registration in registrations:
+                self._validate_registration(registration)
+                old_id = registration['id']
+                if old_id in remap:
+                    raise ValueError('Duplicate application registration.')
+                new_id, stamp = 'app-' + identifier(), now()
+                remap[old_id] = new_id
+                status, path = ApplicationValidator.validate_registered_path(registration['executable_path'])
+                self.db.execute('INSERT INTO registered_applications VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+                    (new_id, registration['name'], normalize(registration['name']), path, registration.get('publisher'),
+                     registration.get('version'), registration.get('icon_path'), registration['source'],
+                     int(bool(registration['enabled']) and status == ValidationStatus.VALID),
+                     int(status != ValidationStatus.VALID), stamp, stamp))
+                self._write_application_aliases(new_id, registration['aliases'])
             for command in commands:
-                self._write_command(identifier(), command['name'], command['action_type'], command['target'], command['phrases'], bool(command['enabled']))
+                self._write_command(identifier(), command['name'], command['action_type'], remap.get(command['target'], command['target']), command['phrases'], bool(command['enabled']))
             for profile in profiles:
                 self._write_profile(identifier(), profile['name'], profile['selected_asset_id'], profile['config'], bool(profile['is_active']))
             for key, value in payload['settings'].items():
@@ -518,19 +777,41 @@ class ApplicationCore:
         source = Path(source).resolve()
         if not source.is_file() or source == self.path.resolve() or source.stat().st_size > 100 * 1024 * 1024:
             raise ValueError('Choose a separate SQLite backup under 100 MB.')
-        candidate = sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)
+        stored = sqlite3.connect(source.as_uri() + '?mode=ro', uri=True)
+        candidate = sqlite3.connect(':memory:')
+        try:
+            stored.backup(candidate)
+        finally:
+            stored.close()
         candidate.row_factory = sqlite3.Row
         try:
             candidate.execute('PRAGMA trusted_schema=OFF')
-            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or candidate.execute('PRAGMA user_version').fetchone()[0] != 1 or candidate.execute('PRAGMA foreign_key_check').fetchall():
+            version = candidate.execute('PRAGMA user_version').fetchone()[0]
+            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or version not in (1, 2) or candidate.execute('PRAGMA foreign_key_check').fetchall():
                 raise ValueError('Invalid or incompatible backup.')
+            if version == 1:
+                candidate.executescript((settings.BASE_DIR / 'src/database/migrations/002_registered_applications.sql').read_text(encoding='utf-8-sig'))
             # Require the application's exact schema: no injected triggers/views or altered constraints.
             current_schema = {(r[0], r[1], r[2], r[3]) for r in self.db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
             backup_schema = {(r[0], r[1], r[2], r[3]) for r in candidate.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
             if current_schema != backup_schema:
                 raise ValueError('Backup schema does not match this application.')
-            for row in candidate.execute('SELECT action_type,action_config FROM commands'):
-                self.validate_action(row[0], json.loads(row[1])['target'])
+            for row in candidate.execute('SELECT * FROM registered_applications').fetchall():
+                registration = dict(row)
+                registration['aliases'] = [alias[0] for alias in candidate.execute('SELECT alias FROM application_aliases WHERE application_id=?', (row['id'],))]
+                self._validate_registration(registration)
+                status, _ = ApplicationValidator.validate_registered_path(row['executable_path'])
+                if status != ValidationStatus.VALID:
+                    candidate.execute('UPDATE registered_applications SET enabled=0,needs_repair=1 WHERE id=?', (row['id'],))
+            for row in candidate.execute('SELECT action_type,action_config,enabled FROM commands'):
+                target = json.loads(row[1])['target']
+                # Removed registrations leave disabled commands for the user to delete/edit.
+                if row[0] == 'application' and isinstance(target, str) and re.fullmatch(r'app-[0-9a-f-]{36}', target):
+                    if not candidate.execute('SELECT id FROM registered_applications WHERE id=?', (target,)).fetchone():
+                        if row[2]:
+                            raise ValueError('Command references an unknown application.')
+                        continue
+                self._validate_command_action(row[0], target, candidate)
             for row in candidate.execute('SELECT config FROM pet_settings'):
                 self.validate_pet(json.loads(row[0]))
             if candidate.execute('SELECT count(*) FROM pet_profiles WHERE is_active=1').fetchone()[0] != 1:
@@ -548,7 +829,31 @@ class ApplicationCore:
             for row in candidate.execute('SELECT m.memory_value FROM memories m JOIN memory_categories c ON c.id=m.category_id WHERE c.sensitive=1'):
                 secrets.decrypt(row[0])
             self.backup()  # Recovery snapshot before replacing the live database.
+            candidate.commit()
             candidate.backup(self.db)
         finally:
             candidate.close()
         self.changed()
+
+    @staticmethod
+    def _validate_registration(record):
+        if not isinstance(record, dict) or not re.fullmatch(r'app-[0-9a-f-]{36}', record.get('id', '')):
+            raise ValueError('Invalid registered application ID.')
+        text(record.get('name'), 'Application name', 150)
+        if record.get('enabled') not in (0, 1) or record.get('needs_repair') not in (0, 1):
+            raise ValueError('Invalid application status.')
+        try:
+            for source in record['source'].split(','):
+                DiscoverySource(source)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise ValueError('Invalid discovery source.') from None
+        status, _ = ApplicationValidator.validate_registered_path(record.get('executable_path'))
+        if status not in (ValidationStatus.VALID, ValidationStatus.MISSING_EXECUTABLE):
+            raise ValueError('Unsafe registered executable in backup.')
+        aliases = record.get('aliases')
+        if not isinstance(aliases, (list, tuple)) or not 1 <= len(aliases) <= 30:
+            raise ValueError('Invalid application aliases.')
+        for alias in aliases:
+            text(alias, 'Alias', 150)
+            if not normalize_input(alias).valid:
+                raise ValueError('Invalid application alias.')

@@ -6,6 +6,8 @@ without altering the Command model or Executor.
 import re
 from abc import ABC, abstractmethod
 from .model import Command, ActionType
+from .interpreter.patterns import APPLICATION_ALIASES, SEARCH_PREFIXES, MUSIC_PREFIXES, HELP_PHRASES
+from ..config.settings import settings
 from ..utils.logger import get_logger
 
 logger = get_logger("parser")
@@ -31,27 +33,9 @@ class RuleBasedCommandParser(BaseCommandParser):
     ACTION_PREFIXES = ("open", "launch", "start", "run")
 
     # Target synonyms to normalized target keys
-    APP_TARGET_MAP = {
-        "chrome": "chrome",
-        "google chrome": "chrome",
-        "notepad": "notepad",
-        "calculator": "calculator",
-        "calc": "calculator",
-        "explorer": "explorer",
-        "file explorer": "explorer",
-        "windows explorer": "explorer",
-        "vscode": "vscode",
-        "vs code": "vscode",
-        "code": "vscode",
-        "visual studio code": "vscode",
-    }
-
-    URL_TARGET_MAP = {
-        "youtube": "https://www.youtube.com",
-        "google": "https://www.google.com",
-    }
-
-    HELP_TRIGGERS = {"help", "commands", "?", "show help", "what can you do"}
+    APP_TARGET_MAP = {alias: target for target, aliases in APPLICATION_ALIASES.items() for alias in aliases}
+    URL_TARGET_MAP = settings.SUPPORTED_URLS
+    HELP_TRIGGERS = HELP_PHRASES
 
     def parse(self, text: str) -> Command:
         """Parses user input into a Command."""
@@ -61,23 +45,14 @@ class RuleBasedCommandParser(BaseCommandParser):
 
         # 1. Normalize: lowercase, trim, collapse consecutive whitespaces
         cleaned = re.sub(r"\s+", " ", text.strip().lower())
-        logger.debug(f"Parsing normalized input: '{cleaned}' (raw: '{text}')")
+        logger.debug('Parsing command input.')
 
         # 2. Check for help triggers
         if cleaned in self.HELP_TRIGGERS:
             return Command(action=ActionType.SHOW_HELP, raw_input=text)
 
         # 3. Check for web search triggers
-        search_prefixes = (
-            "search for ",
-            "search on google ",
-            "search google for ",
-            "search google ",
-            "search ",
-            "look up ",
-            "find ",
-            "google ",
-        )
+        search_prefixes = tuple(prefix + ' ' for prefix in SEARCH_PREFIXES)
         if cleaned in ("search", "search for", "look up", "find"):
             logger.info("Resolved to empty SEARCH_WEB command.")
             return Command(action=ActionType.SEARCH_WEB, target="", raw_input=text)
@@ -86,7 +61,7 @@ class RuleBasedCommandParser(BaseCommandParser):
             if cleaned.startswith(s_prefix):
                 search_query = cleaned[len(s_prefix):].strip()
                 if search_query:
-                    logger.info(f"Resolved to SEARCH_WEB: '{search_query}'")
+                    logger.info('Resolved to SEARCH_WEB.')
                     return Command(
                         action=ActionType.SEARCH_WEB,
                         target=search_query,
@@ -94,13 +69,7 @@ class RuleBasedCommandParser(BaseCommandParser):
                     )
 
         # 4. Check for play music / YouTube triggers
-        music_prefixes = (
-            "play on youtube ",
-            "youtube play ",
-            "play song ",
-            "play music ",
-            "play ",
-        )
+        music_prefixes = tuple(prefix + ' ' for prefix in MUSIC_PREFIXES)
         if cleaned in ("play", "play song", "play music"):
             logger.info("Resolved to empty PLAY_MUSIC command.")
             return Command(action=ActionType.PLAY_MUSIC, target="", raw_input=text)
@@ -111,7 +80,7 @@ class RuleBasedCommandParser(BaseCommandParser):
                 if song_candidate.endswith(" on youtube"):
                     song_candidate = song_candidate[:-11].strip()
                 if song_candidate:
-                    logger.info(f"Resolved to PLAY_MUSIC: '{song_candidate}'")
+                    logger.info('Resolved to PLAY_MUSIC.')
                     return Command(
                         action=ActionType.PLAY_MUSIC,
                         target=song_candidate,
@@ -152,7 +121,7 @@ class RuleBasedCommandParser(BaseCommandParser):
             )
 
         # 6. Unrecognized or unsupported target
-        logger.info(f"Unrecognized command: '{text}' (candidate: '{target_candidate}')")
+        logger.info('Unrecognized command.')
         return Command(
             action=ActionType.UNKNOWN,
             target=target_candidate,

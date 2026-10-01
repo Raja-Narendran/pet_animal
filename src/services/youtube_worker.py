@@ -18,7 +18,7 @@ class YouTubePlayWorker(QThread):
 
     def run(self) -> None:
         """Runs the YouTube playback automation."""
-        logger.info(f"Starting background YouTube playback for: '{self.song_name}'")
+        logger.info('Starting background YouTube playback.')
         try:
             success, message = YouTubeAutomationService.play_song(self.song_name)
             if success:

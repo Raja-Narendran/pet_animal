@@ -46,10 +46,10 @@ class YouTubeAutomationService:
                 # Look specifically for organic videoRenderer entries
                 matches = re.findall(r'videoRenderer.*?videoId...([a-zA-Z0-9_-]{11})', html)
                 if matches:
-                    logger.info(f"Resolved original video ID for '{song_name}': {matches[0]}")
+                    logger.info('Resolved a YouTube video ID.')
                     return matches[0]
         except Exception as e:
-            logger.warning(f"Could not resolve video ID for '{song_name}': {e}")
+            logger.warning('Could not resolve a YouTube video ID.')
         return None
 
     @classmethod
@@ -71,7 +71,7 @@ class YouTubeAutomationService:
         # Fallback to search query if direct ID resolution failed
         encoded = urllib.parse.quote_plus(song_name)
         search_url = f"https://www.youtube.com/results?search_query={encoded}"
-        logger.info(f"Opening YouTube search in existing browser fallback: {search_url}")
+        logger.info('Opening a YouTube search in the existing browser.')
         if not webbrowser.open(search_url):
             return False, "Could not open browser."
         return True, f"Searching for '{song_name}' on YouTube..."
@@ -156,7 +156,7 @@ class YouTubeAutomationService:
 
             driver = cls._create_webdriver()
             if driver:
-                logger.info(f"Navigating to YouTube search: {search_url}")
+                logger.info('Navigating to a YouTube search.')
                 driver.get(search_url)
 
                 timeout = settings.YOUTUBE_SELENIUM_TIMEOUT_S

@@ -101,11 +101,14 @@ def test_voice_error_remains_visible_and_allows_retry(voice_box):
 
 @pytest.mark.parametrize('spoken,target', [('open google chrome','chrome'), ('open note pad','notepad'), ('open the calculator','calculator'), ('open visual studio code','vscode')])
 def test_voice_aliases_resolve_registered_commands(tmp_path, spoken, target):
-    core = ApplicationCore(tmp_path, MagicMock())
+    launcher = MagicMock()
+    launcher.open_application.return_value = (True, 'Opened application')
+    core = ApplicationCore(tmp_path, launcher)
     try:
         canonical = core.resolve_voice_phrase(spoken)
         assert canonical == 'open ' + target
-        assert core.execute(spoken)['success'] is False  # Typed matching stays exact.
+        assert core.execute(spoken)['success']  # Typed and speech aliases share interpretation.
+        launcher.open_application.assert_called_once_with(target)
     finally:
         core.close()
 

@@ -1,0 +1,10 @@
+{
+  "dist/software-discovery-auto-add/pet-animal/pet-animal.exe": {
+    "bytes": 15114260,
+    "sha256": "82cf53c244b9169b0438e97ee474c00ca39a9ce400df6ae3a5ba4f920644dfca"
+  },
+  "dist/software-discovery-auto-add/Pet-Animal-2.0-Setup.exe": {
+    "bytes": 698620564,
+    "sha256": "44e76ec6aec1f19cca091cffad03923985c3ef60ca01f45494c961086639f7e4"
+  }
+}

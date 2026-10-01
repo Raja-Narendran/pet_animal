@@ -75,6 +75,31 @@ def run_self_test(app):
         core = ApplicationCore(temp)
         controller = ApplicationController(core)
         try:
+            from src.services.software_discovery import DiscoveredApplication, DiscoverySource, SoftwareDiscoveryService
+            executable = Path(temp) / 'DiscoveryVerification.exe'
+            executable.write_bytes(b'MZ')
+            candidate = DiscoveredApplication.candidate('Discovery Verification', str(executable), DiscoverySource.START_MENU_USER)
+            assert not core.interpret('open discovery verification').matched
+            summary = core.register_discovered_applications([candidate])
+            assert summary['added'] == 1 and summary['commands_created'] == 1
+            application_id = core.list_registered_applications()[0].id
+            assert core.register_discovered_applications([candidate])['added'] == 0
+            assert core.interpret('discovery verification open pannu').intent.target == application_id
+            core.set_application_enabled(application_id, False)
+            assert core.execute('open discovery verification')['message'] == 'Discovery Verification is currently disabled.'
+            core.set_application_enabled(application_id, True)
+            discovery_backup = core.backup()
+            executable.unlink()
+            core.restore(discovery_backup)
+            assert core.get_registered_application(application_id).needs_repair
+            core.unregister_application(application_id)
+            assert not core.interpret('can you open discovery verification').matched
+            # Keep the existing parse-only history assertion below meaningful.
+            core.clear_history()
+            service = SoftwareDiscoveryService()
+            detected = service.discover()
+            assert not service.errors, 'A Windows discovery provider failed.'
+            result['software_discovery'] = dict(candidates=len(detected), launchable=sum(item.launchable for item in detected))
             core.confirm_name('Verification user')
             assert core.execute('what is my name')['message'] == 'Verification user'
             backup = core.backup()
@@ -103,9 +128,18 @@ def run_self_test(app):
             assert not SpeechEndpoint().feed(bytes(640), 16000)
             assert core.resolve_voice_phrase('Shape of You பாட்டு play பண்ணு') == 'play shape of you'
             assert core.resolve_voice_phrase('Chrome open பண்ணு') == 'open chrome'
+            from src.commands.interpreter import IntentType, MatchReason
+            smart = core.interpret('Can you open Chrome please?')
+            assert smart.matched and smart.command_id and smart.intent.intent == IntentType.OPEN_APPLICATION
+            assert core.interpret('chrome open panna vendam').reason == MatchReason.NEGATED_COMMAND
+            controller.manager.navigation.setCurrentRow(2)
+            controller.manager.smart_input.setText('Chrome ah open pannu')
+            controller.manager.smart_test_button.click()
+            assert 'Execution: Not executed' in controller.manager.smart_result.text()
+            assert not core.history()
             controller.quit()
             assert not controller.pet.tray_icon.isVisible()
-            result.update(success=True, checks=['SQLite migration', 'memory persistence', 'backup restore', 'six Manager pages', 'live profile switching', 'independent Manager closing', 'offline English and Tamil engines, models, native decoder, and voice command routing', 'quit cleanup'])
+            result.update(success=True, checks=['SQLite migration', 'memory persistence', 'backup restore', 'six Manager pages', 'live profile switching', 'independent Manager closing', 'offline English and Tamil engines, models, native decoder, and voice command routing', 'smart command resolution, negation and parse-only Manager tester', 'software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal', 'quit cleanup'])
         except Exception as error:
             result['error'] = str(error)
         finally:

@@ -21,7 +21,7 @@ class CommandExecutor:
 
     def execute(self, command: Command) -> CommandResult:
         """Executes a parsed Command and returns the result."""
-        logger.info(f"Executing command: action={command.action.value}, target='{command.target}'")
+        logger.info('Executing command: action=%s', command.action.value)
 
         if command.action == ActionType.EMPTY:
             return CommandResult(
@@ -54,7 +54,7 @@ class CommandExecutor:
 
         try:
             result = handler.execute(command)
-            logger.info(f"Command finished: success={result.success}, message='{result.message}'")
+            logger.info('Command finished: success=%s', result.success)
             return result
         except Exception as e:
             logger.exception(f"Unexpected exception during command execution: {e}")

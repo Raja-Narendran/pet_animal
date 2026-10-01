@@ -1,0 +1,24 @@
+{
+  "tests": {
+    "existing": 235,
+    "new": 209,
+    "total": 444
+  },
+  "performance": {
+    "rule_median_ms": 0.041800085455179214,
+    "core_median_ms": 0.26519992388784885,
+    "core_p95_ms": 0.3504001069813967,
+    "rule_samples": 1000,
+    "core_samples": 500
+  },
+  "artifacts": {
+    "dist/v2/pet-animal/pet-animal.exe": {
+      "sha256": "04cc86190ff2f83a92417142c223b0076520766154b56312bc0a15c5f7fd0f50",
+      "bytes": 15072455
+    },
+    "dist/v2/Pet-Animal-2.0-Setup.exe": {
+      "sha256": "a12f89647a4eab2b131b88f72ad955fb1bc0e90f0c6108150facf3e8b4917daf",
+      "bytes": 698578205
+    }
+  }
+}
