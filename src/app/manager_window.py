@@ -457,6 +457,10 @@ class ManagerWindow(QMainWindow):
             category.addItem(cat['name'], cat['id'])
         if record:
             category.setCurrentIndex(category.findData(record['category_id']))
+        else:
+            personal_idx = next((i for i in range(category.count()) if 'personal' in category.itemText(i).lower()), -1)
+            if personal_idx >= 0:
+                category.setCurrentIndex(personal_idx)
         title = QLineEdit(record['title'] if record else '')
         title.setObjectName('memoryTitle')
         key = QLineEdit(record['memory_key'] if record else '')
