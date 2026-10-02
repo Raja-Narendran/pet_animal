@@ -31,7 +31,7 @@ def test_v2_migration_preserves_ids_timestamps_and_exact_ciphertext(tmp_path):
     path, ciphertext = legacy_database(tmp_path)
     core = ApplicationCore(tmp_path, MagicMock())
     try:
-        assert core.db.execute('PRAGMA user_version').fetchone()[0] == 3
+        assert core.db.execute('PRAGMA user_version').fetchone()[0] == 5
         name = core.get_memory('old-name')
         assert (name['memory_key'], name['memory_value'], name['memory_type']) == ('user.name', 'Naren', 'PROFILE')
         assert name['source'] == 'MIGRATION'

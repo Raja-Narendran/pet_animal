@@ -1,5 +1,5 @@
 """Owns the two native windows and coordinates their lifetime."""
-from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, QEvent, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QAction
 from .pet_window import PetWindow
@@ -30,6 +30,8 @@ class ApplicationController(QObject):
         self.core = core
         self._browser_workers = set()
         self._shutting_down = False
+        self._shortcut_dismissed = False
+        self._shortcut_submitting = False
         self.pet = PetWindow()
         self.pet.command_box.command_submitted.disconnect()
         self.pet.command_box.command_submitted.connect(self.submit)
@@ -37,6 +39,9 @@ class ApplicationController(QObject):
         self.pet.command_box.voice_command_submitted.connect(self.submit_voice)
         self.pet.command_box.input_field.setPlaceholderText('Hi!!')
         self.pet.command_box.input_field.setMaxLength(500)
+        self.pet.command_box.input_field.textChanged.connect(self._shortcut_text_changed)
+        self.pet.command_box.input_field.installEventFilter(self)
+        self.pet.response_bubble.application_selected.connect(self._application_selected)
         self.pet.close_btn.clicked.disconnect()
         self.pet.close_btn.clicked.connect(self.hide_pet)
         self.pet.close_btn.setToolTip('Hide floating pet')
@@ -114,6 +119,54 @@ class ApplicationController(QObject):
         app_settings = self.core.app_settings()
         self.pet.tray_icon.setVisible(app_settings['tray'])
         settings.VOICE_MULTILINGUAL = (app_settings.get('voice_mode') == 'multilingual')
+        self._refresh_application_suggestions()
+
+    def _shortcut_text_changed(self, _text):
+        self._shortcut_dismissed = False
+        self._refresh_application_suggestions(preserve_selection=False)
+
+    def _refresh_application_suggestions(self, preserve_selection=True):
+        if self._shutting_down or self._shortcut_submitting:
+            return
+        box, bubble = self.pet.command_box, self.pet.response_bubble
+        phrase = box.input_field.text().strip()
+        if (not phrase.startswith('@') or self._shortcut_dismissed or box._voice_active
+                or not self.pet.isVisible() or not box.input_field.isVisible()):
+            bubble.dismiss_suggestions()
+            return
+        selected = bubble.selected_application if preserve_selection and bubble.suggestion_mode else None
+        bubble.show_suggestions(self.core.application_shortcuts(phrase[1:]), selected)
+
+    def eventFilter(self, watched, event):
+        # Qt can dispatch events during QObject construction and after shutdown.
+        pet = getattr(self, 'pet', None)
+        if pet is not None and not self._shutting_down and watched is pet.command_box.input_field:
+            bubble = pet.response_bubble
+            if event.type() == QEvent.Type.Hide:
+                bubble.dismiss_suggestions()
+            elif event.type() == QEvent.Type.KeyPress and bubble.suggestion_mode and bubble.isVisible():
+                if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                    bubble.move_selection(-1 if event.key() == Qt.Key.Key_Up else 1)
+                    return True
+                if event.key() == Qt.Key.Key_Escape:
+                    self._shortcut_dismissed = True
+                    bubble.dismiss_suggestions()
+                    return True
+        return super().eventFilter(watched, event)
+
+    def _application_selected(self, target):
+        if self._shutting_down or self._shortcut_submitting or not self.pet.response_bubble.suggestion_mode:
+            return
+        self._launch_application_shortcut(target)
+
+    def _launch_application_shortcut(self, target):
+        self._shortcut_submitting = True
+        try:
+            self.pet.command_box.input_field.clear()
+            self.pet.response_bubble.dismiss_suggestions()
+            self._show_result(self.core.execute_application_shortcut(target))
+        finally:
+            self._shortcut_submitting = False
 
     def on_pet_clicked(self):
         """User clicked the floating companion: greet and focus input without moving."""
@@ -181,6 +234,14 @@ class ApplicationController(QObject):
     def submit(self, phrase):
         if self._shutting_down:
             return
+        if phrase.strip().startswith('@') and len(phrase) <= 500 and not any(ord(c) < 32 for c in phrase):
+            entries = self.core.application_shortcuts(phrase.strip()[1:])
+            bubble = self.pet.response_bubble
+            target = bubble.selected_application if (bubble.suggestion_mode and
+                phrase.strip() == self.pet.command_box.input_field.text().strip()) else None
+            if target is not None or entries:
+                self._launch_application_shortcut(target if target is not None else entries[0].target)
+                return
         result = self.execute(phrase)
         self._show_result(result)
 
@@ -197,16 +258,19 @@ class ApplicationController(QObject):
             self.pet.restore_pet()
         self.pet.show()
         self.pet.raise_()
+        self._refresh_application_suggestions()
         self.manager.refresh()
 
     def minimize_pet(self):
         self.save_position()
         self.pet.minimize_pet()
+        self._refresh_application_suggestions()
         self.manager.refresh()
 
     def restore_pet(self):
         self.pet.restore_pet()
         self.save_position()
+        self._refresh_application_suggestions()
         self.manager.refresh()
 
     def hide_pet(self):

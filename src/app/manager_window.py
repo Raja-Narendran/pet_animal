@@ -1,5 +1,6 @@
 """Native Manager with six pages, shared services, and Figma-inspired tokens."""
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtCore import Qt, QSize
@@ -266,18 +267,18 @@ class ManagerWindow(QMainWindow):
         search_row, filter_row = QHBoxLayout(), QHBoxLayout()
         self.memory_search = QLineEdit(self.memory_query)
         self.memory_search.setObjectName('memorySearch')
-        self.memory_search.setPlaceholderText('Search title, key, description, tags or aliases…')
+        self.memory_search.setPlaceholderText('Search title, key or value…')
         self.memory_categories = QComboBox()
         self.memory_categories.addItem('All categories', None)
         for category in self.core.categories():
             self.memory_categories.addItem(category['name'], category['id'])
         self.memory_categories.setCurrentIndex(max(0, self.memory_categories.findData(self.memory_category)))
-        self.memory_types = self.memory_choice(MemoryType, self.memory_type, 'All types')
-        # Internal system records have their own scope and are deliberately hidden here.
-        system_index = self.memory_types.findData('SYSTEM')
-        if system_index >= 0:
-            self.memory_types.removeItem(system_index)
-        self.memory_scopes = self.memory_choice(MemoryScope, self.memory_scope, 'All scopes')
+        self.memory_scopes = QComboBox()
+        self.memory_scopes.setObjectName('memoryScopes')
+        self.memory_scopes.addItem('All scopes', None)
+        self.memory_scopes.addItem('Global', 'GLOBAL')
+        self.memory_scopes.addItem('Temporary', 'TEMPORARY')
+        self.memory_scopes.setCurrentIndex(max(0, self.memory_scopes.findData(self.memory_scope)))
         self.memory_states = QComboBox()
         for title, state in [('All states', None), ('Enabled', 'enabled'), ('Disabled', 'disabled'), ('Sensitive', 'sensitive'), ('Expired', 'expired')]:
             self.memory_states.addItem(title, state)
@@ -289,26 +290,24 @@ class ManagerWindow(QMainWindow):
         def filter_rows():
             self.memory_query = self.memory_search.text()
             self.memory_category = self.memory_categories.currentData()
-            self.memory_type = self.memory_types.currentData()
             self.memory_scope = self.memory_scopes.currentData()
             self.memory_state = self.memory_states.currentData()
             self.memory_sort = self.memory_usage.currentData()
             self.guard(self.fill_memories)
         self.memory_search.textChanged.connect(filter_rows)
-        for choice in (self.memory_categories, self.memory_types, self.memory_scopes, self.memory_states, self.memory_usage):
+        for choice in (self.memory_categories, self.memory_scopes, self.memory_states, self.memory_usage):
             choice.currentIndexChanged.connect(filter_rows)
         search_row.addWidget(self.memory_search, 2)
         search_row.addWidget(self.memory_categories, 1)
-        search_row.addWidget(button('New category', self.new_category))
-        for choice in (self.memory_types, self.memory_scopes, self.memory_states, self.memory_usage):
+        for choice in (self.memory_scopes, self.memory_states, self.memory_usage):
             filter_row.addWidget(choice)
         rows.addLayout(search_row)
         rows.addLayout(filter_row)
         self.content_layout.addWidget(filters)
         health = self.core.memory_service.memory_health()
-        self.memory_health_label = label(' · '.join(f"{name}: {health[key]}" for name, key in [('Total', 'total'), ('Active', 'active'), ('Disabled', 'disabled'), ('Expired', 'expired'), ('Sensitive', 'sensitive'), ('Habit candidates', 'habit_candidates'), ('Never used (30+ days)', 'unused')]), 'muted')
+        self.memory_health_label = label(' · '.join(f"{name}: {health[key]}" for name, key in [('Total', 'total'), ('Active', 'active'), ('Disabled', 'disabled'), ('Sensitive', 'sensitive')]), 'muted')
         self.content_layout.addWidget(self.memory_health_label)
-        self.memory_table = self.table(['Title', 'Type / scope', 'Category', 'Value', 'Used', 'Enabled'], [])
+        self.memory_table = self.table(['Title', 'Category', 'Value', 'Scope', 'Used', 'Enabled'], [])
         self.memory_table.setObjectName('memoryTable')
         self.memory_table.setWordWrap(False)
         self.memory_table.itemSelectionChanged.connect(self.show_selected_memory)
@@ -324,13 +323,12 @@ class ManagerWindow(QMainWindow):
         row.addWidget(button('Full encrypted backup', self.backup_memory_database))
         row.addWidget(button('Clean expired memories', self.clean_expired_memories))
         self.content_layout.addWidget(actions)
-        self.content_layout.addWidget(label('Safe JSON exports exclude sensitive categories. Full SQLite backups retain values encrypted for this Windows user. Unused memories are kept until you delete them.', 'muted'))
-        self.render_habit_candidates()
+        self.content_layout.addWidget(label('Safe JSON exports exclude sensitive categories. Full SQLite backups retain values encrypted for this Windows user.', 'muted'))
 
     def fill_memories(self):
         state = self.memory_state
         self.memory_records = self.core.memory_service.list_memories(
-            self.memory_query, self.memory_category, memory_type=self.memory_type,
+            self.memory_query, self.memory_category,
             memory_scope=self.memory_scope, enabled=True if state == 'enabled' else False if state == 'disabled' else None,
             sensitive=True if state == 'sensitive' else None, expired=True if state == 'expired' else None,
             include_expired=True, sort=self.memory_sort)
@@ -339,8 +337,9 @@ class ManagerWindow(QMainWindow):
         self.memory_table.setMinimumHeight(min(420, max(160, 52 * (len(self.memory_records) + 1))))
         selected_row = -1
         for index, record in enumerate(self.memory_records):
-            values = (record['title'], record['memory_type'].title() + ' / ' + record['memory_scope'].replace('_', ' ').title(),
-                      record['category'], record['memory_value'], record['access_count'], 'Yes' if record['enabled'] else 'No')
+            values = (record['title'], record['category'], record['memory_value'],
+                      record['memory_scope'].replace('_', ' ').title(), record['access_count'],
+                      'Yes' if record['enabled'] else 'No')
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setToolTip(str(value))
@@ -391,15 +390,13 @@ class ManagerWindow(QMainWindow):
             self.memory_reveal_button = button('Reveal value', lambda: self.reveal_memory_value(record['id']))
             form.addRow('', self.memory_reveal_button)
         category = next((cat['name'] for cat in self.core.categories() if cat['id'] == record['category_id']), '')
-        confidence = 'Not specified' if record['confidence'] is None else f"{record['confidence']:.2f}"
-        fields = [('Type', record['memory_type'].title()), ('Scope', record['memory_scope'].replace('_', ' ').title()),
-                  ('Category', category), ('Lifetime', record['lifetime'].title()), ('Expires', self.local_time(record['expires_at']) if record['expires_at'] else 'No expiry'),
-                  ('Importance', f"{record['importance']:.2f}"), ('Confidence', confidence), ('Source', record['source'].replace('_', ' ').title()),
-                  ('Created', self.local_time(record['created_at'])), ('Updated', self.local_time(record['updated_at'])),
+        fields = [('Category', category),
+                  ('Scope', record['memory_scope'].replace('_', ' ').title()),
+                  ('Created', self.local_time(record['created_at'])),
+                  ('Updated', self.local_time(record['updated_at'])),
                   ('Last used', self.local_time(record['last_accessed_at']) if record['last_accessed_at'] else 'Never'),
-                  ('Usage count', str(record['access_count'])), ('Tags', ', '.join(record['tags']) or 'None'),
-                  ('Aliases', ', '.join(record['aliases']) or 'None'), ('Sensitive', 'Yes — Windows user encryption' if record['sensitive'] else 'No'),
-                  ('Description', record['description'] or 'None')]
+                  ('Usage count', str(record['access_count'])),
+                  ('Sensitive', 'Yes — Windows user encryption' if record['sensitive'] else 'No')]
         for name, value in fields:
             form.addRow(name, label(value))
         self.memory_details_layout.addWidget(body)
@@ -408,25 +405,8 @@ class ManagerWindow(QMainWindow):
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(button('Edit memory', lambda: self.guard(lambda: self.edit_memory(record))))
         row.addWidget(button('Disable' if record['enabled'] else 'Enable', lambda: self.guard(lambda: self.core.memory_service.update_memory(record['id'], enabled=not bool(record['enabled'])))))
-        row.addWidget(button('Delete memory', lambda: self.confirm('Delete memory', 'Permanently delete this memory and its relationships?', lambda: self.core.delete_memory(record['id']))))
+        row.addWidget(button('Delete memory', lambda: self.confirm('Delete memory', 'Permanently delete this memory?', lambda: self.core.delete_memory(record['id']))))
         self.memory_details_layout.addWidget(actions)
-        relationships = self.core.memory_service.get_relationships(record['id'])
-        relation_widget = QWidget()
-        layout = QVBoxLayout(relation_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(label('Relationships', 'subheading'))
-        relations = self.table(['From', 'Relationship', 'To'], [(r['source_title'], r['relationship_type'], r['target_title']) for r in relationships])
-        layout.addWidget(relations)
-        relation_actions = QHBoxLayout()
-        relation_actions.addWidget(button('Add relationship', lambda: self.add_memory_relationship(record)))
-        def remove_relation():
-            selected = relations.currentRow()
-            if 0 <= selected < len(relationships):
-                relation_id = relationships[selected]['id']
-                self.confirm('Delete relationship', 'Remove this connection between memories?', lambda: self.core.memory_service.delete_relationship(relation_id))
-        relation_actions.addWidget(button('Delete selected relationship', remove_relation))
-        layout.addLayout(relation_actions)
-        self.memory_details_layout.addWidget(relation_widget)
 
     def reveal_memory_value(self, memory_id):
         def reveal():
@@ -448,31 +428,244 @@ class ManagerWindow(QMainWindow):
             sensitive = QMessageBox.question(self, 'Sensitive category', 'Encrypt values in this category with Windows user encryption?', QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
             self.guard(lambda: self.core.add_category(name, sensitive))
 
+    def _existing_default_titles(self):
+        records = self.core.memories()
+        has_name = False
+        has_address = False
+        has_email = False
+        for r in records:
+            t = (r.get('title') or '').strip().lower()
+            k = (r.get('memory_key') or '').strip().lower()
+            if t in ('name', 'my name', 'full name', 'user name') or k in ('user.name', 'name', 'my.name'):
+                has_name = True
+            if t in ('address', 'my address', 'home address') or k in ('address', 'user.address', 'my.address', 'home.address'):
+                has_address = True
+            if t in ('email', 'email id', 'email-id', 'emailid', 'my email', 'my email id') or k in ('email', 'email.id', 'email_id', 'emailid', 'user.email', 'my.email'):
+                has_email = True
+        return has_name, has_address, has_email
+
     def edit_memory(self, record=None):
         if isinstance(record, bool):
             record = None
         if record:
             record = self.core.get_memory(record['id'])
         dialog, form, buttons = self.dialog('Edit memory' if record else 'Add memory')
-        # The larger metadata editor remains usable on smaller desktop displays.
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        fields_widget = QWidget()
-        fields_form = QFormLayout(fields_widget)
-        scroll.setWidget(fields_widget)
-        form.addRow(scroll)
-        dialog.resize(650, 780)
+        dialog.resize(500, 440)
         category = QComboBox()
+        category.setObjectName('memoryCategory')
         for cat in self.core.categories():
             category.addItem(cat['name'], cat['id'])
         if record:
             category.setCurrentIndex(category.findData(record['category_id']))
         title = QLineEdit(record['title'] if record else '')
         title.setObjectName('memoryTitle')
-        key = QLineEdit(record['memory_key'] if record else 'custom.' + identifier())
+        key = QLineEdit(record['memory_key'] if record else '')
         key.setObjectName('memoryKey')
-        key.setPlaceholderText('e.g. user.name or preferred.browser')
+        key.setPlaceholderText('Auto-generated from title')
+
+        # Auto-create key according to title when adding new memory
+        key_manually_edited = [False]
+
+        title_option = None
+        id_title = None
+        id_title_label = None
+        title_label = None
+        if not record:
+            has_name, has_address, has_email = self._existing_default_titles()
+            default_options = []
+            if not has_name:
+                default_options.append('Name')
+            if not has_address:
+                default_options.append('Address')
+            default_options.append('IDs')
+            default_options.append('Mobile number')
+            if not has_email:
+                default_options.append('Email ID')
+            default_options.append('Custom')
+
+            title_option = QComboBox()
+            title_option.setObjectName('memoryTitleOption')
+            for opt in default_options:
+                title_option.addItem(opt, opt)
+
+            id_title = QLineEdit()
+            id_title.setObjectName('memoryIdTitle')
+            id_title.setPlaceholderText('Enter ID title (e.g. Passport, Driving License, Voter ID, Aadhaar)')
+            id_title_label = QLabel('ID Title')
+
+            title_label = QLabel('Title')
+
+            title_option_label = QLabel('Title')
+
+            password_app = QLineEdit()
+            password_app.setObjectName('memoryPasswordApp')
+            password_app.setPlaceholderText('e.g. Google, GitHub, Netflix, Instagram, Office')
+            password_app_label = QLabel('Website or app name')
+
+            def on_title_changed(text):
+                clean = text.strip()
+                cat_name = category.currentText().lower()
+                is_personal = ('personal' in cat_name)
+                is_password = ('password' in cat_name)
+                if is_personal and clean and clean not in ('Name', 'Address', 'Mobile number', 'Email ID') and title_option.currentText() != 'IDs':
+                    if title_option.currentText() != 'Custom':
+                        title_option.blockSignals(True)
+                        title_option.setCurrentText('Custom')
+                        title_option.blockSignals(False)
+                        title_label.setVisible(True)
+                        title.setVisible(True)
+                        title.setReadOnly(False)
+                if not key_manually_edited[0]:
+                    if is_personal and title_option and title_option.currentText() == 'Name':
+                        key.setText('user.name')
+                    elif is_personal and title_option and title_option.currentText() == 'Email ID':
+                        key.setText('email.id')
+                    elif is_personal and title_option and title_option.currentText() == 'Mobile number':
+                        key.setText('mobile.number')
+                    elif is_password and password_app.text().strip():
+                        t = password_app.text().strip()
+                        full = t if 'password' in t.lower() else f"{t} Password"
+                        key.setText(re.sub(r'[^a-z0-9_.]+', '.', full.lower()).strip('.'))
+                    else:
+                        slug = re.sub(r'[^a-z0-9_.]+', '.', text.strip().lower()).strip('.')
+                        key.setText(slug)
+            title.textChanged.connect(on_title_changed)
+            key.textEdited.connect(lambda: key_manually_edited.__setitem__(0, True))
+
+            def on_password_app_changed(text):
+                clean = text.strip()
+                if clean:
+                    t = clean if 'password' in clean.lower() else f"{clean} Password"
+                    title.setText(t)
+                    slug = re.sub(r'[^a-z0-9_.]+', '.', t.lower()).strip('.')
+                    key.setText(slug if slug else 'password')
+                else:
+                    title.setText('')
+                    key.setText('')
+
+            password_app.textChanged.connect(on_password_app_changed)
+
+            def apply_option(option):
+                personal_cat_index = next((i for i in range(category.count()) if 'personal' in category.itemText(i).lower()), -1)
+                if option in ('Name', 'Address', 'IDs', 'Mobile number', 'Email ID'):
+                    if personal_cat_index >= 0 and category.currentIndex() != personal_cat_index:
+                        category.blockSignals(True)
+                        category.setCurrentIndex(personal_cat_index)
+                        category.blockSignals(False)
+
+                if option == 'Name':
+                    title.setText('Name')
+                    key.setText('user.name')
+                    value.setPlaceholderText('Enter your full name')
+                    id_title_label.setVisible(False)
+                    id_title.setVisible(False)
+                    title_label.setVisible(False)
+                    title.setVisible(False)
+                elif option == 'Address':
+                    title.setText('Address')
+                    key.setText('address')
+                    value.setPlaceholderText('Enter your address')
+                    id_title_label.setVisible(False)
+                    id_title.setVisible(False)
+                    title_label.setVisible(False)
+                    title.setVisible(False)
+                elif option == 'Mobile number':
+                    title.setText('Mobile number')
+                    key.setText('mobile.number')
+                    value.setPlaceholderText('Enter mobile number')
+                    id_title_label.setVisible(False)
+                    id_title.setVisible(False)
+                    title_label.setVisible(False)
+                    title.setVisible(False)
+                elif option == 'Email ID':
+                    title.setText('Email ID')
+                    key.setText('email.id')
+                    value.setPlaceholderText('Enter email address')
+                    id_title_label.setVisible(False)
+                    id_title.setVisible(False)
+                    title_label.setVisible(False)
+                    title.setVisible(False)
+                elif option == 'IDs':
+                    clean = id_title.text().strip()
+                    title.setText(clean if clean else 'ID')
+                    slug = re.sub(r'[^a-z0-9_.]+', '.', clean.lower()).strip('.') if clean else 'id'
+                    key.setText(slug if slug else 'id')
+                    value.setPlaceholderText('Enter ID number / detail')
+                    id_title_label.setVisible(True)
+                    id_title.setVisible(True)
+                    title_label.setVisible(False)
+                    title.setVisible(False)
+                    id_title.setFocus()
+                elif option == 'Custom':
+                    id_title_label.setVisible(False)
+                    id_title.setVisible(False)
+                    title_label.setVisible(True)
+                    title.setVisible(True)
+                    title.setReadOnly(False)
+                    title.setPlaceholderText('Enter memory title')
+                    value.setPlaceholderText('Enter memory value')
+                    if title.text() in ('Name', 'Address', 'Mobile number', 'Email ID', 'ID'):
+                        title.setText('')
+                        key.setText('')
+                    title.setFocus()
+
+            title_option.currentTextChanged.connect(apply_option)
+
+            def on_id_title_changed(text):
+                if title_option.currentText() == 'IDs':
+                    clean = text.strip()
+                    if clean:
+                        title.setText(clean)
+                        slug = re.sub(r'[^a-z0-9_.]+', '.', clean.lower()).strip('.')
+                        key.setText(slug if slug else 'id')
+                    else:
+                        title.setText('ID')
+                        key.setText('id')
+
+            id_title.textChanged.connect(on_id_title_changed)
+
+            def on_category_changed():
+                cat_name = category.currentText().lower()
+                is_personal = ('personal' in cat_name)
+                is_password = ('password' in cat_name)
+
+                title_option_label.setVisible(is_personal)
+                title_option.setVisible(is_personal)
+
+                password_app_label.setVisible(is_password)
+                password_app.setVisible(is_password)
+
+                if is_personal:
+                    id_title_label.setVisible(title_option.currentText() == 'IDs')
+                    id_title.setVisible(title_option.currentText() == 'IDs')
+                    title_label.setVisible(title_option.currentText() == 'Custom')
+                    title.setVisible(title_option.currentText() == 'Custom')
+                    apply_option(title_option.currentText())
+                elif is_password:
+                    id_title_label.setVisible(False)
+                    id_title.setVisible(False)
+                    title_label.setVisible(False)
+                    title.setVisible(False)
+                    value.setPlaceholderText('Enter password')
+                    password_app.setFocus()
+                    if password_app.text().strip():
+                        on_password_app_changed(password_app.text())
+                    elif title.text().strip() and not title.text().endswith(' Password'):
+                        password_app.setText(title.text().strip())
+                else:
+                    id_title_label.setVisible(False)
+                    id_title.setVisible(False)
+                    title_label.setVisible(True)
+                    title.setVisible(True)
+                    title.setReadOnly(False)
+                    title.setPlaceholderText('Enter memory title')
+                    if title.text() in ('Name', 'Address', 'Mobile number', 'Email ID', 'ID') or title.text().endswith(' Password'):
+                        title.setText('')
+                        key.setText('')
+                    value.setPlaceholderText('Enter memory value')
+
+            category.currentIndexChanged.connect(on_category_changed)
+
         sensitive = bool(record and record['sensitive'])
         value = QTextEdit()
         value.setPlainText('' if sensitive else record['memory_value'] if record else '')
@@ -482,77 +675,67 @@ class ManagerWindow(QMainWindow):
             value.setPlaceholderText('Encrypted value is preserved. Reveal it or enter a replacement.')
         value_changed = [False]
         value.textChanged.connect(lambda: value_changed.__setitem__(0, True))
-        description = QLineEdit(record['description'] if record else '')
-        memory_type = self.memory_choice(MemoryType, record['memory_type'] if record else 'NOTE')
-        system_index = memory_type.findData('SYSTEM')
-        if system_index >= 0:
-            memory_type.removeItem(system_index)
-        memory_type.setObjectName('memoryType')
-        scope = self.memory_choice(MemoryScope, record['memory_scope'] if record else 'GLOBAL')
+
+        scope = QComboBox()
         scope.setObjectName('memoryScope')
-        owner = QLineEdit((record.get('scope_id') or '') if record else '')
-        lifetime = self.memory_choice(MemoryLifetime, record['lifetime'] if record else 'persistent')
-        lifetime.setObjectName('memoryLifetime')
-        expiry = QLineEdit((record['expires_at'] or '') if record else '')
-        expiry.setObjectName('memoryExpiry')
-        expiry.setPlaceholderText('Optional timestamp, e.g. 2026-10-03T18:00:00+05:30')
-        importance = QDoubleSpinBox()
-        importance.setRange(0, 1)
-        importance.setSingleStep(0.1)
-        importance.setValue(record['importance'] if record else 0.5)
-        importance_set = QCheckBox('Override type default')
-        importance_set.setChecked(bool(record))
-        importance.setEnabled(importance_set.isChecked())
-        importance_set.toggled.connect(importance.setEnabled)
-        importance_row = QWidget()
-        importance_layout = QHBoxLayout(importance_row)
-        importance_layout.setContentsMargins(0, 0, 0, 0)
-        importance_layout.addWidget(importance_set)
-        importance_layout.addWidget(importance)
-        confidence = QDoubleSpinBox()
-        confidence.setRange(0, 1)
-        confidence.setSingleStep(0.1)
-        confidence.setValue(record['confidence'] if record and record['confidence'] is not None else 1.0)
-        confidence_set = QCheckBox('Specified')
-        confidence_set.setChecked(not record or record['confidence'] is not None)
-        confidence.setEnabled(confidence_set.isChecked())
-        confidence_set.toggled.connect(confidence.setEnabled)
-        confidence_row = QWidget()
-        confidence_layout = QHBoxLayout(confidence_row)
-        confidence_layout.setContentsMargins(0, 0, 0, 0)
-        confidence_layout.addWidget(confidence_set)
-        confidence_layout.addWidget(confidence)
-        tags = QLineEdit(', '.join(record['tags']) if record else '')
-        tags.setObjectName('memoryTags')
-        tags.setPlaceholderText('Comma-separated tags')
-        aliases = QTextEdit()
-        aliases.setPlainText('\n'.join(record['aliases']) if record else '')
-        aliases.setObjectName('memoryAliases')
-        aliases.setPlaceholderText('One alias per line')
-        aliases.setMaximumHeight(90)
+        scope.addItem('Global', 'GLOBAL')
+        scope.addItem('Temporary', 'TEMPORARY')
+        if record:
+            current_scope = 'TEMPORARY' if record['memory_scope'] == 'TEMPORARY' else 'GLOBAL'
+            scope.setCurrentIndex(scope.findData(current_scope))
+
         enabled = QCheckBox('Available to memory commands and retrieval')
         enabled.setChecked(bool(record['enabled']) if record else True)
-        for name, widget in [('Category', category), ('Title', title), ('Key', key), ('Value', value)]:
-            fields_form.addRow(name, widget)
+
+        if not record:
+            form.addRow('Category', category)
+            form.addRow(title_option_label, title_option)
+            form.addRow(id_title_label, id_title)
+            form.addRow(password_app_label, password_app)
+            form.addRow(title_label, title)
+            form.addRow('Key', key)
+            form.addRow('Value', value)
+            on_category_changed()
+        else:
+            for name, widget in [('Category', category), ('Title', title), ('Key', key), ('Value', value)]:
+                form.addRow(name, widget)
+
         if sensitive:
             def reveal_edit():
                 revealed = self.core.get_memory(record['id'], reveal=True)
                 value.setPlainText(revealed['memory_value'])
-            fields_form.addRow('', button('Reveal encrypted value', lambda: self.guard(reveal_edit)))
-        for name, widget in [('Description', description), ('Type', memory_type), ('Scope', scope), ('Scope owner (optional)', owner), ('Lifetime', lifetime),
-                             ('Expires at', expiry), ('Importance', importance_row), ('Confidence', confidence_row), ('Tags', tags), ('Aliases', aliases), ('Enabled', enabled)]:
-            fields_form.addRow(name, widget)
-        fields_form.addRow(label('Use a sensitive category for private values. Session memories are removed on restart. Temporary memories expire after five minutes unless you set an expiry. Conflicting changes require confirmation.', 'muted'))
+            form.addRow('', button('Reveal encrypted value', lambda: self.guard(reveal_edit)))
+        form.addRow('Scope', scope)
+        form.addRow('Enabled', enabled)
+
         def save():
             def perform():
-                fields = dict(category_id=category.currentData(), title=title.text(), key=key.text(), description=description.text(), enabled=enabled.isChecked(),
-                              memory_type=memory_type.currentData(), memory_scope=scope.currentData(), scope_id=owner.text().strip() or None,
-                              lifetime=lifetime.currentData(), expires_at=expiry.text().strip() or None,
-                              confidence=confidence.value() if confidence_set.isChecked() else None,
-                              tags=[tag.strip() for tag in tags.text().split(',') if tag.strip()],
-                              aliases=[alias.strip() for alias in aliases.toPlainText().splitlines() if alias.strip()])
-                if importance_set.isChecked():
-                    fields['importance'] = importance.value()
+                target_key = key.text().strip()
+                target_title = title.text().strip()
+                cat_name = category.currentText().lower()
+                is_personal = ('personal' in cat_name)
+                is_password = ('password' in cat_name)
+
+                if not record and is_personal and title_option and title_option.currentText() == 'IDs':
+                    id_entered = id_title.text().strip()
+                    if not id_entered:
+                        raise ValueError('Please enter a title for the ID (e.g. Passport, Driving License).')
+                    target_title = id_entered
+
+                if not record and is_password:
+                    app_entered = password_app.text().strip()
+                    if app_entered:
+                        target_title = app_entered if 'password' in app_entered.lower() else f"{app_entered} Password"
+                    elif not target_title:
+                        raise ValueError('Please enter the website or app name.')
+
+                if not target_title:
+                    raise ValueError('Please enter a title for the memory.')
+
+                if not target_key:
+                    target_key = re.sub(r'[^a-z0-9_.]+', '.', target_title.lower()).strip('.')
+                fields = dict(category_id=category.currentData(), title=target_title, key=target_key,
+                              enabled=enabled.isChecked(), memory_scope=scope.currentData())
                 if not sensitive or value_changed[0]:
                     fields['value'] = value.toPlainText()
                 def apply(confirmed=False):
@@ -595,37 +778,6 @@ class ManagerWindow(QMainWindow):
             self.guard(apply)
         buttons.accepted.connect(save)
         dialog.exec()
-
-    def render_habit_candidates(self):
-        frame, layout = self.card('Activity patterns')
-        layout.addWidget(label('Analyze local command activity on demand. Patterns become memories only when you approve them.', 'muted'))
-        layout.addWidget(button('Analyze activity', lambda: self.guard(self.analyze_memory_habits)))
-        candidates = self.core.habit_engine.list_candidates()
-        self.habit_candidates = candidates
-        if not candidates:
-            layout.addWidget(label('No pending habit candidates.', 'muted'))
-        for candidate in candidates:
-            item = QWidget()
-            row = QHBoxLayout(item)
-            row.setContentsMargins(0, 0, 0, 0)
-            title = candidate.get('title') or ('Frequently opened application' if candidate['candidate_type'] == 'APPLICATION' else 'Frequently used command')
-            row.addWidget(label(f"{title}\n{candidate['candidate_value']} · {candidate['evidence_count']} executions · confidence {candidate['confidence']:.2f}"), 1)
-            row.addWidget(button('Save habit', lambda checked=False, selected=candidate: self.confirm_habit_candidate(selected)))
-            row.addWidget(button('Reject', lambda checked=False, selected=candidate: self.guard(lambda: self.core.habit_engine.reject(selected['id']))))
-            layout.addWidget(item)
-        self.content_layout.addWidget(frame)
-
-    def analyze_memory_habits(self):
-        self.core.habit_engine.analyze()
-        self.refresh()
-
-    def confirm_habit_candidate(self, candidate):
-        def save():
-            try:
-                self.core.habit_engine.accept(candidate['id'])
-            except MemoryConflict:
-                self.confirm('Replace saved habit', 'This candidate conflicts with a saved memory. Replace the saved information?', lambda: self.core.habit_engine.accept(candidate['id'], confirmed=True))
-        self.confirm('Save activity pattern', f"Save this activity pattern as a habit?\n{candidate['candidate_value']}\nEvidence: {candidate['evidence_count']} executions.", save)
 
     def clean_expired_memories(self):
         def clean():

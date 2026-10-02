@@ -391,6 +391,7 @@ class PetWindow(QWidget):
     def moveEvent(self, event) -> None:
         """Keeps response bubble aligned with pet companion when moved."""
         super().moveEvent(event)
+        self._update_pet_anchor()
         if hasattr(self, "response_bubble") and self.response_bubble.isVisible():
             self.response_bubble.update_position(self)
 

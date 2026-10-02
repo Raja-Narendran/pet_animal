@@ -102,9 +102,9 @@ def run_self_test(app):
             result['software_discovery'] = dict(candidates=len(detected), launchable=sum(item.launchable for item in detected))
             core.confirm_name('Verification user')
             assert core.execute('what is my name')['message'] == 'Verification user'
-            assert core.db.execute('PRAGMA user_version').fetchone()[0] == 3
+            assert core.db.execute('PRAGMA user_version').fetchone()[0] == 5
             service = core.memory_service
-            category = next(c['id'] for c in core.categories() if c['name'] == 'Custom')
+            category = next(c['id'] for c in core.categories() if c['name'] == 'Important Notes')
             editor = core.execute('remember my editor is VS Code')
             core.confirm_memory(editor['memory_confirmation'])
             preference = service.get_by_key('preferred.editor', consume=False)
@@ -122,7 +122,6 @@ def run_self_test(app):
             exported = core.export_memories()
             assert exported['version'] == 2
             assert all(record['memory_key'] != 'private.verification' for record in exported['memories'])
-            assert core.habit_engine.analyze() == []
             session_memory = service.create_memory(category, 'Session verification', 'current_task', 'Verify memory', memory_type='CONTEXT')
             backup = core.backup()
             core.confirm_name('Changed')
@@ -131,9 +130,9 @@ def run_self_test(app):
             assert core.get_memory(session_memory) is None
             assert service.get_relationships(project)
             assert core.get_memory(private, reveal=True)['memory_value'] == 'DPAPI verification value'
-            result['personal_memory_engine'] = dict(schema_version=3, preference_resolution=True,
+            result['personal_memory_engine'] = dict(schema_version=5, preference_resolution=True,
                 aliases_tags_relationships=True, access_tracking=True, dpapi_safe_export=True,
-                session_restore_cleanup=True, habit_analysis_on_demand=True)
+                session_restore_cleanup=True)
             for index in range(6):
                 controller.manager.navigation.setCurrentRow(index)
                 app.processEvents()

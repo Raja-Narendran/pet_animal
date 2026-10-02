@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-from src.core.memory import (HabitEngine, MemoryConflict, MemoryConflictType, MemoryLifetime,
+from src.core.memory import (MemoryConflict, MemoryConflictType, MemoryLifetime,
                              MemoryQuery, MemoryScope, MemoryService, MemorySource, MemoryType)
 from src.core.memory import service as module
 
@@ -274,7 +274,7 @@ def test_health_counts_are_factual_and_do_not_delete_unused(engine):
     save(engine, key='disabled', enabled=False)
     save(engine, key='expired', lifetime='temporary', expires_at=(engine.test_time[0]-timedelta(seconds=1)).isoformat())
     health = engine.memory_health()
-    assert health == dict(total=3, active=1, disabled=1, expired=1, sensitive=0, habit_candidates=0, unused=1)
+    assert health == dict(total=3, active=1, disabled=1, expired=1, sensitive=0, unused=1)
     assert engine.get_memory(old)
 
 
@@ -372,73 +372,6 @@ def test_legacy_export_import_and_strict_duplicate_policy(engine):
     assert engine.import_memories(payload)['duplicates'] == 1
     with pytest.raises(ValueError):
         engine.import_memories(payload, strict=True)
-
-
-def activity(engine, count, status='success', target='vscode', command_id='open-editor'):
-    stamp = engine.now()
-    with engine.db:
-        engine.db.execute('INSERT OR IGNORE INTO commands VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-                          (command_id, 'Open editor', '', 'application', json.dumps({'target':target}), '', '', 1, 0, stamp, stamp))
-        engine.db.execute('INSERT OR IGNORE INTO command_phrases VALUES (?,?,?,?,?)', ('phrase-'+command_id, command_id, 'open '+target, 'open '+target, stamp))
-        for _ in range(count):
-            engine.db.execute('INSERT INTO command_history VALUES (?,?,?,?,?,?)', (str(uuid.uuid4()), command_id, 'open '+target, status, '', stamp))
-
-
-def test_habits_only_create_candidates_at_thresholds(engine):
-    habits = HabitEngine(engine)
-    activity(engine, 4)
-    assert habits.analyze() == []
-    activity(engine, 1)
-    candidates = habits.analyze()
-    assert len(candidates) == 1 and candidates[0]['candidate_type'] == 'COMMAND'
-    assert not engine.list_memories()
-    activity(engine, 5)
-    candidates = habits.analyze()
-    assert {c['candidate_type'] for c in candidates} == {'COMMAND','APPLICATION'}
-    assert all(c['evidence_count'] == 10 for c in candidates)
-    assert not engine.list_memories()
-    assert len(habits.analyze()) == 2
-
-
-def test_habits_ignore_failed_unknown_free_text_and_old_activity(engine):
-    activity(engine, 20, status='failed')
-    with engine.db:
-        for phrase in ('[unsupported command]','[web search]','[music playback]'):
-            for _ in range(20):
-                engine.db.execute('INSERT INTO command_history VALUES (?,?,?,?,?,?)', (str(uuid.uuid4()), None, phrase, 'success', '', engine.now()))
-    assert HabitEngine(engine).analyze() == []
-    activity(engine, 10)
-    engine.test_time[0] += timedelta(days=91)
-    assert HabitEngine(engine).analyze() == []
-
-
-def test_habit_acceptance_saves_approved_habit_not_automatic_preference(engine):
-    activity(engine, 10)
-    habits = HabitEngine(engine)
-    candidate = next(c for c in habits.analyze() if c['candidate_type'] == 'APPLICATION')
-    memory_id = habits.accept(candidate['id'])
-    row = engine.get_memory(memory_id)
-    assert row['memory_type'] == 'HABIT' and row['source'] == 'HABIT_ENGINE'
-    assert row['memory_value'] == 'vscode'
-    assert engine.find_existing('preferred.editor') is None
-    assert habits.list_candidates('ACCEPTED')[0]['memory_id'] == memory_id
-    with pytest.raises(ValueError):
-        habits.accept(candidate['id'])
-    habits.analyze()
-    assert all(c['candidate_type'] != 'APPLICATION' for c in habits.list_candidates())
-
-
-def test_rejected_habit_requires_cooldown_and_new_evidence(engine):
-    activity(engine, 10)
-    habits = HabitEngine(engine)
-    candidate = next(c for c in habits.analyze() if c['candidate_type'] == 'APPLICATION')
-    habits.reject(candidate['id'])
-    activity(engine, 10)
-    assert all(c['candidate_type'] != 'APPLICATION' for c in habits.analyze())
-    engine.test_time[0] += timedelta(days=31)
-    assert all(c['candidate_type'] != 'APPLICATION' for c in habits.analyze())
-    activity(engine, 10)
-    assert any(c['candidate_type'] == 'APPLICATION' for c in habits.analyze())
 
 
 @pytest.mark.parametrize('changes', [dict(scope_id='other'), dict(lifetime='temporary')])

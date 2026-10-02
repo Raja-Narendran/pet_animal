@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from . import secrets
-from .memory import MemoryService, HabitEngine
+from .memory import MemoryService
+from .shortcuts import APPLICATION_NAMES, ApplicationShortcut, match_shortcuts
 from ..config.settings import settings
 from ..services.windows_launcher import WindowsLauncher
 from ..services.software_discovery import DiscoveredApplication, RegisteredApplication, ApplicationValidator, ValidationStatus, DiscoverySource
@@ -65,7 +66,7 @@ class ApplicationCore:
         self.listeners = []
         self._memory_confirmations = {}
         version = self.db.execute('PRAGMA user_version').fetchone()[0]
-        if version > 3:
+        if version > 5:
             raise ValueError('This database requires a newer Pet Animal version.')
         if version == 0:
             migration = settings.BASE_DIR / 'src/database/migrations/001_initial.sql'
@@ -81,11 +82,25 @@ class ApplicationCore:
                 self.db.rollback()
                 self.db.close()
                 raise
+        if version < 4:
+            migration = settings.BASE_DIR / 'src/database/migrations/004_simplify_memory.sql'
+            try:
+                self.db.executescript('BEGIN;\n' + migration.read_text(encoding='utf-8-sig') + '\nCOMMIT;')
+            except Exception:
+                self.db.rollback()
+                self.db.close()
+        if version < 5:
+            migration = settings.BASE_DIR / 'src/database/migrations/005_remove_activity_patterns.sql'
+            try:
+                self.db.executescript('BEGIN;\n' + migration.read_text(encoding='utf-8-sig') + '\nCOMMIT;')
+            except Exception:
+                self.db.rollback()
+                self.db.close()
+                raise
         self._seed()
         self.memory_service = MemoryService(self.db, changed=self.changed)
         self.memory_retriever = self.memory_service.retriever
         self.memory_resolver = MemoryResolver(self.memory_retriever)
-        self.habit_engine = HabitEngine(self.memory_service)
         if isinstance(self.launcher, WindowsLauncher):
             self.launcher.registered_application_lookup = self.get_registered_application
         self._refresh_application_aliases()
@@ -104,7 +119,7 @@ class ApplicationCore:
 
     def _seed(self):
         with self.db:
-            for name, sensitive in [('Personal Information', 0), ('Passwords and Credit and debit card details', 1), ('Important Notes', 0), ('Custom', 0)]:
+            for name, sensitive in [('Personal Information', 0), ('Password', 1), ('Credit and Debit card details', 1), ('Important Notes', 0)]:
                 self.db.execute('INSERT OR IGNORE INTO memory_categories VALUES (?,?,?)', (identifier(), name, sensitive))
             for state, filename in settings.PET_STATES.items():
                 self.db.execute('INSERT OR IGNORE INTO pet_assets VALUES (?,?,?,0)', ('builtin-' + state, 'Husky · ' + state.title(), filename))
@@ -137,10 +152,13 @@ class ApplicationCore:
     def get_memory(self, memory_id, reveal=False):
         return self.memory_service.get_memory(memory_id, reveal=reveal)
 
-    def get_memory_by_key(self, key, consume=True):
-        return self.memory_service.get_memory_by_key(key, consume=consume)
+    def get_memory_by_key(self, key, consume=True, reveal=False):
+        return self.memory_service.get_memory_by_key(key, consume=consume, reveal=reveal)
 
     def save_memory(self, category_id, title, key, value, description='', enabled=True, memory_id=None, **metadata):
+        if key is None:
+            slug = re.sub(r'[^a-z0-9_.]+', '.', title.strip().lower()).strip('.')
+            key = slug if slug else 'custom.' + identifier()
         # An explicit ID edit is the established Manager's confirmed user action.
         if memory_id is None and self.rows('SELECT id FROM memories WHERE memory_key=?', (key,)):
             raise sqlite3.IntegrityError('Memory key already exists.')
@@ -176,6 +194,42 @@ class ApplicationCore:
             row['target'] = json.loads(row['action_config'])['target']
             row['phrases'] = [p['phrase'] for p in self.rows('SELECT phrase FROM command_phrases WHERE command_id=? ORDER BY rowid', (row['id'],))]
         return records
+
+    def application_shortcuts(self, query=''):
+        """List enabled application commands without launching or recording activity."""
+        applications = {app.id: app for app in self.list_registered_applications()}
+        records = self.rows("SELECT * FROM commands WHERE action_type='application' AND enabled=1")
+        records.sort(key=lambda row: (not row['is_builtin'], row['name'].casefold(), row['id']))
+        entries = {}
+        for record in records:
+            try:
+                target = json.loads(record['action_config'])['target']
+                if not isinstance(target, str) or target in entries:
+                    continue
+                if target in WindowsLauncher.SUPPORTED_APPS:
+                    name = APPLICATION_NAMES.get(target, target)
+                else:
+                    app = applications.get(target)
+                    if app is None or not app.enabled or app.needs_repair:
+                        continue
+                    name = app.name
+                if not self.rows('SELECT id FROM command_phrases WHERE command_id=? LIMIT 1', (record['id'],)):
+                    continue
+                aliases = tuple(sorted(self._application_aliases.get(target, ())))
+                entries[target] = ApplicationShortcut(target, name, aliases, record['id'])
+            except (ValueError, KeyError, TypeError):
+                continue
+        return match_shortcuts(entries.values(), query)
+
+    def execute_application_shortcut(self, target):
+        """Resolve a live target ID; a displayed suggestion grants no lasting authority."""
+        entry = next((item for item in self.application_shortcuts() if item.target == target), None)
+        if entry is None:
+            interpretation = InterpretationResult(reason=MatchReason.UNAVAILABLE_COMMAND)
+        else:
+            interpretation = InterpretationResult(True, CommandIntent(IntentType.OPEN_APPLICATION, target),
+                entry.command_id, MatchReason.SMART_MATCH, 1.0)
+        return self._execute_registered_command(interpretation, '', expected_application=target)
 
     def list_registered_applications(self):
         return [RegisteredApplication(**dict(row, enabled=bool(row['enabled']), needs_repair=bool(row['needs_repair']),
@@ -440,7 +494,7 @@ class ApplicationCore:
             self.delete_memory(existing['id'])
             return dict(success=True, message='Memory deleted.', pet_state='success')
         memory_type = draft['memory_type']
-        category_name = 'Personal Information' if memory_type == 'PROFILE' else ('Important Notes' if memory_type == 'NOTE' else 'Custom')
+        category_name = 'Personal Information' if memory_type == 'PROFILE' else 'Important Notes'
         category_id = next(c['id'] for c in self.categories() if c['name'] == category_name)
         metadata = dict(memory_type=memory_type, source='COMMAND')
         if memory_type == 'CONTEXT':
@@ -490,6 +544,15 @@ class ApplicationCore:
         # Mandatory safety veto precedes matching, even for an exact custom phrase.
         if normalized_input.negated:
             return InterpretationResult(reason=MatchReason.NEGATED_COMMAND)
+        if phrase.strip().startswith('@'):
+            query = normalize(phrase.strip()[1:])
+            exact = [entry for entry in self.application_shortcuts(query) if query and
+                     query in {normalize(name) for name in (entry.display_name, *entry.aliases)}]
+            if len(exact) != 1:
+                return InterpretationResult(reason=MatchReason.AMBIGUOUS_TARGET if exact else MatchReason.UNAVAILABLE_COMMAND)
+            entry = exact[0]
+            return InterpretationResult(True, CommandIntent(IntentType.OPEN_APPLICATION, entry.target),
+                entry.command_id, MatchReason.SMART_MATCH, 1.0)
         normalized = normalize(phrase)
         if normalized in ('help', 'what is my name'):
             kind = IntentType.SHOW_HELP if normalized == 'help' else IntentType.MEMORY_QUERY
@@ -548,11 +611,16 @@ class ApplicationCore:
         intent = interpretation.intent if interpretation.matched else None
         if intent and intent.intent == IntentType.MEMORY_QUERY:
             try:
-                memory = self.get_memory_by_key(intent.target)
+                is_pref = bool(intent.target and intent.target.startswith('preferred.'))
+                memory = self.get_memory_by_key(intent.target, reveal=not is_pref)
             except ValueError:
                 return dict(success=False, message='Invalid memory query.', pet_state='error')
-            message = (('Sensitive memory is saved. Reveal it in the Memory Manager.' if memory['sensitive'] else memory['memory_value'])
-                       if memory else ('Your name has not been saved.' if intent.target == 'user.name' else 'That memory has not been saved.'))
+            if not memory:
+                message = ('Your name has not been saved.' if intent.target == 'user.name' else 'That memory has not been saved.')
+            elif memory['sensitive'] and is_pref:
+                message = 'Sensitive memory is saved. Reveal it in the Memory Manager.'
+            else:
+                message = memory['memory_value']
             return dict(success=bool(memory), message=message, pet_state='success' if memory else 'idle')
         if intent and intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_FORGET):
             try:
@@ -562,6 +630,11 @@ class ApplicationCore:
         if intent and intent.intent == IntentType.SHOW_HELP:
             names = [c['phrases'][0] for c in self.commands() if c['enabled']]
             return dict(success=True, message='Commands: ' + ', '.join(names) + '\nBrowser: search <query>; play <song> on youtube\nMemory: remember my name as <name>; save my preferred browser as <app>; what is my editor; forget my preferred browser', pet_state='idle')
+        return self._execute_registered_command(interpretation, phrase, defer_browser)
+
+    def _execute_registered_command(self, interpretation, phrase, defer_browser=False, expected_application=None):
+        """Shared live validation, OS dispatch and private history for resolved commands."""
+        intent = interpretation.intent if interpretation.matched else None
         found = self.rows('SELECT * FROM commands WHERE id=? AND enabled=1', (interpretation.command_id,)) if interpretation.matched else []
         command_id = None
         if not found:
@@ -571,6 +644,8 @@ class ApplicationCore:
             command_id = record['id']
             try:
                 target = json.loads(record['action_config'])['target']
+                if expected_application is not None and (record['action_type'] != 'application' or target != expected_application):
+                    raise ValueError('The selected application command changed.')
                 self._validate_command_action(record['action_type'], target)
                 if intent.intent in (IntentType.WEB_SEARCH, IntentType.PLAY_MEDIA):
                     action = 'search' if intent.intent == IntentType.WEB_SEARCH else 'music'
@@ -831,12 +906,16 @@ class ApplicationCore:
             candidate.execute('PRAGMA foreign_keys=ON')
             candidate.execute('PRAGMA trusted_schema=OFF')
             version = candidate.execute('PRAGMA user_version').fetchone()[0]
-            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or version not in (1, 2, 3) or candidate.execute('PRAGMA foreign_key_check').fetchall():
+            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or version not in (1, 2, 3, 4, 5) or candidate.execute('PRAGMA foreign_key_check').fetchall():
                 raise ValueError('Invalid or incompatible backup.')
             if version == 1:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/002_registered_applications.sql').read_text(encoding='utf-8-sig'))
             if version < 3:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/003_personal_memory_engine.sql').read_text(encoding='utf-8-sig'))
+            if version < 4:
+                candidate.executescript((settings.BASE_DIR / 'src/database/migrations/004_simplify_memory.sql').read_text(encoding='utf-8-sig'))
+            if version < 5:
+                candidate.executescript((settings.BASE_DIR / 'src/database/migrations/005_remove_activity_patterns.sql').read_text(encoding='utf-8-sig'))
             # Require the application's exact schema: no injected triggers/views or altered constraints.
             current_schema = {(r[0], r[1], r[2], r[3]) for r in self.db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
             backup_schema = {(r[0], r[1], r[2], r[3]) for r in candidate.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}

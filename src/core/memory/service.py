@@ -113,13 +113,26 @@ class MemoryService:
         row = self._raw(memory_id)
         return self._decorate(row, reveal) if row else None
 
-    def find_existing(self, key):
+    def find_existing(self, key, reveal=False):
         key = normalize(checked_text(key, 'Key', 200))
         row = self.db.execute(SELECT_MEMORY + ' WHERE lower(m.memory_key)=?', (key,)).fetchone()
         if row is None:
+            row = self.db.execute(SELECT_MEMORY + ' WHERE lower(m.title)=?', (key,)).fetchone()
+        if row is None and key.startswith(('my ', 'the ')):
+            stripped = key.partition(' ')[2].strip()
+            row = self.db.execute(SELECT_MEMORY + ' WHERE lower(m.title)=? OR lower(m.memory_key)=?', (stripped, stripped)).fetchone()
+            if row is None:
+                slug = re.sub(r'[^a-z0-9_.]+', '.', stripped).strip('.')
+                if slug:
+                    row = self.db.execute(SELECT_MEMORY + ' WHERE lower(m.memory_key)=?', (slug,)).fetchone()
+        if row is None:
+            slug = re.sub(r'[^a-z0-9_.]+', '.', key).strip('.')
+            if slug:
+                row = self.db.execute(SELECT_MEMORY + ' WHERE lower(m.memory_key)=?', (slug,)).fetchone()
+        if row is None:
             row = self.db.execute(SELECT_MEMORY + ''' JOIN memory_aliases a ON a.memory_id=m.id
                                WHERE a.normalized_alias=?''', (key,)).fetchone()
-        return self._decorate(row) if row else None
+        return self._decorate(row, reveal=reveal) if row else None
 
     def active_pet_profile(self):
         row = self.db.execute('SELECT id FROM pet_profiles WHERE is_active=1').fetchone()
@@ -359,8 +372,8 @@ class MemoryService:
             self.db.execute('UPDATE memories SET access_count=access_count+1,last_accessed_at=? WHERE id=?', (self.now(), memory_id))
         return True
 
-    def get_by_key(self, key, consume=True):
-        match = self.retriever.get_by_key(key, consume=consume)
+    def get_by_key(self, key, consume=True, reveal=False):
+        match = self.retriever.get_by_key(key, consume=consume, reveal=reveal)
         return match.memory if match else None
 
     get_memory_by_key = get_by_key
@@ -462,7 +475,6 @@ class MemoryService:
         return dict(total=len(rows), active=sum(bool(r['enabled']) and not r['expired'] for r in rows),
                     disabled=sum(not r['enabled'] for r in rows), expired=sum(r['expired'] for r in rows),
                     sensitive=sum(bool(r['sensitive']) for r in rows),
-                    habit_candidates=self.db.execute("SELECT count(*) FROM habit_candidates WHERE status='PENDING'").fetchone()[0],
                     unused=sum(r['access_count'] == 0 and r['created_at'] < cutoff for r in rows))
 
     def export_memories(self):
@@ -662,16 +674,5 @@ class MemoryService:
             if not re.fullmatch(r'[a-z][a-z0-9_]{0,63}', row['relationship_type']):
                 raise ValueError('Invalid relationship in backup.')
             timestamp(row['created_at'])
-        for row in service._rows('SELECT * FROM habit_candidates'):
-            checked_text(row['candidate_key'], 'Habit key', 200)
-            checked_text(row['candidate_value'], 'Habit value', 200)
-            score_value(row['confidence'], 'Habit confidence')
-            if row['candidate_type'] not in ('APPLICATION','COMMAND') or row['status'] not in ('PENDING','ACCEPTED','REJECTED','EXPIRED') or not isinstance(row['evidence_count'], int) or row['evidence_count'] < 1:
-                raise ValueError('Invalid habit candidate in backup.')
-            for field in ('first_seen_at','last_seen_at'):
-                timestamp(row[field])
-            timestamp(row['rejected_at'], optional=True)
-            if row['status'] == 'REJECTED' and row['rejected_at'] is None:
-                raise ValueError('Rejected habit requires a suppression timestamp.')
         if connection.execute('PRAGMA foreign_key_check').fetchall():
             raise ValueError('Orphaned memory metadata in backup.')

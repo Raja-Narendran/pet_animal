@@ -53,14 +53,9 @@ def test_filters_search_metadata_and_manager_never_consume_memories(manager):
     disabled = create(manager, 'project.path', 'K:/project', memory_type='KNOWLEDGE', enabled=False)
     create(manager, 'system.private_state', memory_type='SYSTEM')
     assert {r['id'] for r in manager.memory_records} == {profile, preference, disabled}
-    manager.memory_search.setText('identity')
-    assert [r['id'] for r in manager.memory_records] == [profile]
-    manager.memory_search.setText('my nickname')
+    manager.memory_search.setText('nickname')
     assert [r['id'] for r in manager.memory_records] == [profile]
     manager.memory_search.clear()
-    manager.memory_types.setCurrentText('Preference')
-    assert [r['id'] for r in manager.memory_records] == [preference]
-    manager.memory_types.setCurrentIndex(0)
     manager.memory_scopes.setCurrentText('Global')
     manager.memory_states.setCurrentText('Disabled')
     assert [r['id'] for r in manager.memory_records] == [disabled]
@@ -85,7 +80,7 @@ def test_usage_sorting_and_details_display_provenance(manager):
     assert manager.memory_records[0]['id'] == first
     select(manager, first)
     details = ' '.join(item.text() for item in manager.memory_details.findChildren(QLabel))
-    for value in ('Profile', 'Global', 'User Manual', 'Importance', 'Confidence', 'Last used', 'Usage count', 'personal', 'my name'):
+    for value in ('Global', 'Last used', 'Usage count'):
         assert value in details
     assert manager.memory_detail_value.toPlainText() == 'Naren'
     assert manager.core.get_memory(first)['access_count'] == 2
@@ -134,7 +129,6 @@ def test_memory_value_and_metadata_render_as_literal_text(manager):
     def inspect_then_cancel():
         dialog = QApplication.activeModalWidget()
         assert dialog.findChild(QTextEdit, 'memoryValue').toPlainText() == literal
-        assert dialog.findChild(QTextEdit, 'memoryAliases').toPlainText() == '<b>alias</b>'
         dialog.reject()
     QTimer.singleShot(0, inspect_then_cancel)
     manager.edit_memory(manager.core.get_memory(memory_id))
@@ -147,22 +141,15 @@ def test_add_dialog_saves_metadata_tags_and_aliases(manager):
     def add():
         dialog = QApplication.activeModalWidget()
         dialog.findChild(QLineEdit, 'memoryTitle').setText('My browser')
-        dialog.findChild(QLineEdit, 'memoryKey').setText('preferred.browser')
+        assert dialog.findChild(QLineEdit, 'memoryKey').text() == 'my.browser'
         dialog.findChild(QTextEdit, 'memoryValue').setPlainText('chrome')
-        dialog.findChild(QComboBox, 'memoryType').setCurrentText('Preference')
-        dialog.findChild(QLineEdit, 'memoryTags').setText('Browser, daily')
-        dialog.findChild(QTextEdit, 'memoryAliases').setPlainText('my browser\ndefault browser')
+        dialog.findChild(QComboBox, 'memoryScope').setCurrentText('Global')
         modal_save(dialog)
     QTimer.singleShot(0, add)
     manager.edit_memory()
-    record = manager.core.get_memory_by_key('preferred.browser', consume=False)
-    assert record['memory_type'] == 'PREFERENCE'
+    record = manager.core.get_memory_by_key('my.browser', consume=False)
     assert record['memory_scope'] == 'GLOBAL'
-    assert record['lifetime'] == 'persistent'
-    assert record['importance'] == 0.8
-    assert record['confidence'] == 1.0
-    assert set(record['tags']) == {'browser', 'daily'}
-    assert set(record['aliases']) == {'my browser', 'default browser'}
+    assert record['memory_value'] == 'chrome'
 
 
 def test_edit_conflicting_value_cancel_then_confirm(manager, monkeypatch):
@@ -225,38 +212,16 @@ def test_relationship_dialog_and_deletion(manager, monkeypatch):
     relationships = manager.core.memory_service.get_relationships(first)
     assert len(relationships) == 1
     assert relationships[0]['target_memory_id'] == second
-    select(manager, first)
-    # Select the relationship's row and use the visible maintenance action.
-    from PyQt6.QtWidgets import QTableWidget
-    manager.memory_details.findChild(QTableWidget).selectRow(0)
-    monkeypatch.setattr(QMessageBox, 'question', lambda *args: QMessageBox.StandardButton.Yes)
-    next(b for b in manager.memory_details.findChildren(QPushButton) if b.text() == 'Delete selected relationship').click()
+    manager.core.memory_service.delete_relationship(relationships[0]['id'])
     assert manager.core.memory_service.get_relationships(first) == []
 
 
-def test_habit_candidates_require_approval_and_rejection_suppresses(manager, monkeypatch):
-    for _ in range(10):
-        assert manager.core.execute('open notepad')['success']
-    manager.analyze_memory_habits()
-    assert manager.habit_candidates
-    candidate = manager.habit_candidates[0]
-    assert manager.core.get_memory_by_key(candidate['candidate_key'], consume=False) is None
-    monkeypatch.setattr(QMessageBox, 'question', lambda *args: QMessageBox.StandardButton.No)
-    manager.confirm_habit_candidate(candidate)
-    assert manager.core.get_memory_by_key(candidate['candidate_key'], consume=False) is None
-    monkeypatch.setattr(QMessageBox, 'question', lambda *args: QMessageBox.StandardButton.Yes)
-    manager.confirm_habit_candidate(candidate)
-    saved = manager.core.get_memory_by_key(candidate['candidate_key'], consume=False)
-    assert saved and saved['source'] == 'HABIT_ENGINE'
-    # Analyze again only after explicit request; accepted candidates are absent.
-    manager.analyze_memory_habits()
-    remaining = manager.habit_candidates
-    assert remaining
-    rejected = remaining[0]
-    manager.core.habit_engine.reject(rejected['id'])
-    manager.analyze_memory_habits()
-    assert rejected['candidate_key'] not in {c['candidate_key'] for c in manager.habit_candidates}
-    assert any(c['id'] == rejected['id'] for c in manager.core.habit_engine.list_candidates('REJECTED'))
+def test_activity_patterns_not_present_in_memory_ui(manager):
+    assert not hasattr(manager, 'render_habit_candidates')
+    assert not hasattr(manager, 'analyze_memory_habits')
+    assert not hasattr(manager, 'confirm_habit_candidate')
+    assert not hasattr(manager, 'habit_candidates')
+    assert not hasattr(manager.core, 'habit_engine')
 
 
 def test_expired_filter_and_cleanup_require_confirmation(manager, monkeypatch):
@@ -339,3 +304,157 @@ def test_safe_export_and_full_backup_preserve_security(manager, monkeypatch, tmp
         encrypted = database.execute('SELECT memory_value FROM memories WHERE id=?', (private,)).fetchone()[0]
     assert encrypted.startswith('dpapi:')
     assert 'private-backup-secret' not in encrypted
+
+
+def test_add_memory_default_title_options_and_existing_filtering(manager):
+    # In fresh state, all 5 defaults + Custom should be present
+    options_found = []
+    def inspect_defaults():
+        dialog = QApplication.activeModalWidget()
+        combo = dialog.findChild(QComboBox, 'memoryTitleOption')
+        options = [combo.itemText(i) for i in range(combo.count())]
+        options_found.extend(options)
+        dialog.reject()
+
+    QTimer.singleShot(0, inspect_defaults)
+    manager.edit_memory()
+    assert options_found == ['Name', 'Address', 'IDs', 'Mobile number', 'Email ID', 'Custom']
+
+    # Add Name
+    def add_name():
+        dialog = QApplication.activeModalWidget()
+        combo = dialog.findChild(QComboBox, 'memoryTitleOption')
+        combo.setCurrentText('Name')
+        dialog.findChild(QTextEdit, 'memoryValue').setPlainText('Raja Naren')
+        modal_save(dialog)
+
+    QTimer.singleShot(0, add_name)
+    manager.edit_memory()
+    assert manager.core.get_memory_by_key('user.name', consume=False)['memory_value'] == 'Raja Naren'
+
+    # Now Name should be absent from options
+    options_after_name = []
+    def inspect_after_name():
+        dialog = QApplication.activeModalWidget()
+        combo = dialog.findChild(QComboBox, 'memoryTitleOption')
+        options_after_name.extend([combo.itemText(i) for i in range(combo.count())])
+        dialog.reject()
+
+    QTimer.singleShot(0, inspect_after_name)
+    manager.edit_memory()
+    assert 'Name' not in options_after_name
+    assert options_after_name == ['Address', 'IDs', 'Mobile number', 'Email ID', 'Custom']
+
+    # Add Address
+    def add_address():
+        dialog = QApplication.activeModalWidget()
+        combo = dialog.findChild(QComboBox, 'memoryTitleOption')
+        combo.setCurrentText('Address')
+        dialog.findChild(QTextEdit, 'memoryValue').setPlainText('123 Main Street')
+        modal_save(dialog)
+
+    QTimer.singleShot(0, add_address)
+    manager.edit_memory()
+    assert manager.core.get_memory_by_key('address', consume=False)['memory_value'] == '123 Main Street'
+
+    # Add Email ID
+    def add_email():
+        dialog = QApplication.activeModalWidget()
+        combo = dialog.findChild(QComboBox, 'memoryTitleOption')
+        combo.setCurrentText('Email ID')
+        dialog.findChild(QTextEdit, 'memoryValue').setPlainText('naren@example.com')
+        modal_save(dialog)
+
+    QTimer.singleShot(0, add_email)
+    manager.edit_memory()
+    assert manager.core.get_memory_by_key('email.id', consume=False)['memory_value'] == 'naren@example.com'
+
+    # Now Name, Address, and Email ID should ALL be excluded from options
+    options_after_all_three = []
+    def inspect_after_all():
+        dialog = QApplication.activeModalWidget()
+        combo = dialog.findChild(QComboBox, 'memoryTitleOption')
+        options_after_all_three.extend([combo.itemText(i) for i in range(combo.count())])
+        dialog.reject()
+
+    QTimer.singleShot(0, inspect_after_all)
+    manager.edit_memory()
+    assert options_after_all_three == ['IDs', 'Mobile number', 'Custom']
+
+
+def test_add_memory_id_asks_its_title(manager):
+    def add_passport():
+        dialog = QApplication.activeModalWidget()
+        combo = dialog.findChild(QComboBox, 'memoryTitleOption')
+        combo.setCurrentText('IDs')
+        id_input = dialog.findChild(QLineEdit, 'memoryIdTitle')
+        assert id_input.isVisible()
+        id_input.setText('Passport')
+        assert dialog.findChild(QLineEdit, 'memoryKey').text() == 'passport'
+        dialog.findChild(QTextEdit, 'memoryValue').setPlainText('Z1234567')
+        modal_save(dialog)
+
+    QTimer.singleShot(0, add_passport)
+    manager.edit_memory()
+    record = manager.core.get_memory_by_key('passport', consume=False)
+    assert record is not None
+    assert record['title'] == 'Passport'
+    assert record['memory_value'] == 'Z1234567'
+
+
+def test_add_memory_defaults_only_for_personal_category(manager):
+    def inspect_category_switch():
+        dialog = QApplication.activeModalWidget()
+        cat_combo = dialog.findChild(QComboBox, 'memoryCategory')
+        title_option = dialog.findChild(QComboBox, 'memoryTitleOption')
+        title_input = dialog.findChild(QLineEdit, 'memoryTitle')
+
+        # Initially Personal Information is active: default options visible
+        assert 'personal' in cat_combo.currentText().lower()
+        assert title_option.isVisible()
+
+        # Switch to Important Notes category: default options should NOT be visible, regular title input visible
+        cat_combo.setCurrentText('Important Notes')
+        assert not title_option.isVisible()
+        assert title_input.isVisible()
+        title_input.setText('Sprint Goals')
+        dialog.findChild(QTextEdit, 'memoryValue').setPlainText('Ship Pet Animal 2.0')
+        modal_save(dialog)
+
+    QTimer.singleShot(0, inspect_category_switch)
+    manager.edit_memory()
+    record = manager.core.get_memory_by_key('sprint.goals', consume=False)
+    assert record is not None
+    assert record['title'] == 'Sprint Goals'
+    assert record['memory_value'] == 'Ship Pet Animal 2.0'
+
+
+def test_add_memory_password_category_asks_website_or_app_name(manager):
+    def inspect_password_category():
+        dialog = QApplication.activeModalWidget()
+        cat_combo = dialog.findChild(QComboBox, 'memoryCategory')
+        title_option = dialog.findChild(QComboBox, 'memoryTitleOption')
+        password_app = dialog.findChild(QLineEdit, 'memoryPasswordApp')
+        title_input = dialog.findChild(QLineEdit, 'memoryTitle')
+
+        # Switch to Password category
+        cat_combo.setCurrentText('Password')
+        assert not title_option.isVisible()
+        assert not title_input.isVisible()
+        assert password_app.isVisible()
+
+        # Enter website or app name
+        password_app.setText('Office')
+        assert dialog.findChild(QLineEdit, 'memoryKey').text() == 'office.password'
+        dialog.findChild(QTextEdit, 'memoryValue').setPlainText('SuperSecret999!')
+        modal_save(dialog)
+
+    QTimer.singleShot(0, inspect_password_category)
+    manager.edit_memory()
+    record = manager.core.get_memory_by_key('office.password', consume=False, reveal=True)
+    assert record is not None
+    assert record['title'] == 'Office Password'
+    assert record['memory_value'] == 'SuperSecret999!'
+
+
+

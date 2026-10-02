@@ -14,6 +14,8 @@ For a fresh environment, use Python 3.10 or newer, create `.venv`, and install `
 
 ## Use the app
 
+Type `@` in the pet's chat box to browse enabled apps from Commands. Continue with an app name or alias, such as `@ch` or `@spotify`, to filter the balloon suggestions. Use Up/Down to choose, then Enter, Send, or click an app to open it. Escape dismisses suggestions until the next edit. Suggestions also work above the chat box when the pet is minimized; typing alone never launches an app.
+
 - **Dashboard:** live memory and command counts, executions today, active pet, recent activity, and quick actions.
 - **Memory:** manage profile, preference, knowledge, habit, relationship, note and context records; filter by type, scope, category, state and usage; inspect sources, confidence, access counts, tags, aliases and relationships. Reveal sensitive values explicitly. Analyze activity to review habit candidates, clean expired records with confirmation, and preview safe imports.
 - **Commands:** configure phrases per action, detect conflicts, enable/disable, edit, delete and test. **Test Understanding** parses a request without executing it or saving history; **Test selected** executes the configured action.

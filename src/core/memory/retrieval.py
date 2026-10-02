@@ -10,7 +10,7 @@ class MemoryRetriever:
     def __init__(self, service):
         self.service = service
 
-    def _match(self, row, reason, base, consume):
+    def _match(self, row, reason, base, consume, reveal=False):
         stamp = datetime.fromisoformat(self.service.now())
         age = max(0, (stamp - datetime.fromisoformat(row['updated_at'])).total_seconds() / 86400)
         bonus = (2 * row['importance'] + row['confidence'] + 0.5 / (1 + age)
@@ -18,17 +18,17 @@ class MemoryRetriever:
         if consume:
             if not self.service.record_access(row['id']):
                 return None
-            row = self.service.get_memory(row['id'])
+            row = self.service.get_memory(row['id'], reveal=reveal)
         return MemoryMatch(row['id'], row['memory_key'], row['memory_value'], round(base + bonus, 6),
                            reason, bool(row['sensitive']), row['confidence'], row)
 
-    def get_by_key(self, key, consume=True):
+    def get_by_key(self, key, consume=True, reveal=False):
         query = normalize(checked_text(key, 'Key', 200))
-        row = self.service.find_existing(query)
+        row = self.service.find_existing(query, reveal=reveal)
         if row is None or not self.service.applicable(row):
             return None
         reason = 'EXACT_KEY' if normalize(row['memory_key']) == query else 'ALIAS'
-        return self._match(row, reason, 100 if reason == 'EXACT_KEY' else 90, consume)
+        return self._match(row, reason, 100 if reason == 'EXACT_KEY' else 90, consume, reveal=reveal)
 
     def consume(self, memory_id):
         row = self.service.get_memory(memory_id)

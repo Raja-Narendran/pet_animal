@@ -197,7 +197,7 @@ def memory_core(tmp_path):
 
 
 def save_preference(core, key, value, **metadata):
-    category = next(row['id'] for row in core.categories() if row['name'] == 'Custom')
+    category = next(row['id'] for row in core.categories() if row['name'] == 'Important Notes')
     return core.save_memory(category, key, key, value, memory_type='PREFERENCE', **metadata)
 
 
@@ -418,7 +418,7 @@ def test_explicit_forget_never_becomes_a_bulk_deletion(phrase):
 
 
 def test_custom_alias_query_and_forget_resolve_the_same_canonical_record(memory_core):
-    category = next(row['id'] for row in memory_core.categories() if row['name'] == 'Custom')
+    category = next(row['id'] for row in memory_core.categories() if row['name'] == 'Important Notes')
     memory_id = memory_core.save_memory(category, 'Deployment location', 'deployment.location',
         r'K:\Private Deployment', aliases=['my deployment location'])
     before = memory_core.db.total_changes
@@ -499,3 +499,17 @@ def test_opt_in_resolver_consumption_rejects_an_expired_record():
                               commands(), APPLICATION_ALIASES, consume=True)
     assert not result.matched and result.reason == MatchReason.UNAVAILABLE_COMMAND
     assert result.memory_id is None
+
+
+def test_custom_password_memory_query_reveals_decrypted_value(memory_core):
+    category_id = next(c['id'] for c in memory_core.categories() if c['name'] == 'Password')
+    memory_core.save_memory(
+        category_id=category_id,
+        title="Office password",
+        key="office.password",
+        value="SecretOffice123!",
+    )
+    res = memory_core.execute("what is my Office password?")
+    assert res['success'] is True
+    assert res['message'] == "SecretOffice123!"
+

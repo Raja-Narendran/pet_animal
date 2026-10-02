@@ -103,7 +103,7 @@ def memory_query_target(phrase):
     if explicit:
         return memory_target(explicit[1]) or _explicit_alias(explicit[1])
     match = re.fullmatch(r"(?:what is|what's|tell me|show me|recall)\s+(.+)", phrase)
-    return memory_target(match[1]) if match else None
+    return (memory_target(match[1]) or _explicit_alias(match[1])) if match else None
 
 
 def memory_forget_target(phrase):
