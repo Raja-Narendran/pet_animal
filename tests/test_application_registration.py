@@ -186,7 +186,7 @@ def test_migration_from_version_one_preserves_existing_records(tmp_path):
         db.execute('INSERT INTO applications VALUES (?,?,?)', ('legacy', 'Legacy unused metadata', 'never launched'))
     core = ApplicationCore(root)
     try:
-        assert core.db.execute('PRAGMA user_version').fetchone()[0] == 2
+        assert core.db.execute('PRAGMA user_version').fetchone()[0] == 3
         assert core.rows('SELECT * FROM applications')[0]['name'] == 'Legacy unused metadata'
         assert not core.list_registered_applications()
     finally:
@@ -194,17 +194,28 @@ def test_migration_from_version_one_preserves_existing_records(tmp_path):
 
 
 def test_legacy_backup_is_migrated_in_memory_without_changing_source(core):
+    from src.config.settings import settings
     core.confirm_name('Legacy user')
     backup = core.backup()
-    with sqlite3.connect(backup) as db:
-        db.execute('DROP TABLE application_aliases')
-        db.execute('DROP TABLE registered_applications')
-        db.execute('PRAGMA user_version=1')
+    # Build an actual shipped V1 schema, rather than relabeling a newer schema.
+    legacy = backup.with_suffix('.legacy.db')
+    with sqlite3.connect(legacy) as db, sqlite3.connect(backup) as original:
+        db.executescript((settings.BASE_DIR / 'src/database/migrations/001_initial.sql').read_text(encoding='utf-8-sig'))
+        tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        for table in tables:
+            columns = ','.join(row[1] for row in db.execute(f'PRAGMA table_info({table})'))
+            records = original.execute(f'SELECT {columns} FROM {table}').fetchall()
+            if records:
+                placeholders = ','.join('?' for _ in records[0])
+                db.executemany(f'INSERT INTO {table} ({columns}) VALUES ({placeholders})', records)
+    db.close()
+    original.close()
+    legacy.replace(backup)
     before = backup.read_bytes()
     core.confirm_name('Changed')
     core.restore(backup)
     assert core.get_memory_by_key('user.name')['memory_value'] == 'Legacy user'
-    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 2
+    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 3
     assert backup.read_bytes() == before
 
 

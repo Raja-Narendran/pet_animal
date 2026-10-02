@@ -1,21 +1,22 @@
 """Anchored templates, explicit verbs and whole-target aliases; no fuzzy execution."""
-import re
 from .base import IntentInterpreter
 from .models import CommandIntent, InterpretationResult, IntentType, MatchReason
 from .normalizer import normalize_input
+from .memory_rules import PREFERENCE_TARGETS, memory_store_parts, memory_query_target, memory_forget_target
 from .patterns import (APPLICATION_ALIASES, WEBSITE_ALIASES, OPEN_VERBS,
                        LOW_CONFIDENCE_ALIASES, SEARCH_PREFIXES, MUSIC_PREFIXES, HELP_PHRASES)
 from ..voice_phrases import NAME_ALIASES
 
 
 class RuleBasedIntentInterpreter(IntentInterpreter):
-    def __init__(self, application_aliases=None, website_aliases=None):
+    def __init__(self, application_aliases=None, website_aliases=None, memory_preferences=False):
         self.application_aliases = APPLICATION_ALIASES if application_aliases is None else application_aliases
         self.website_aliases = WEBSITE_ALIASES if website_aliases is None else website_aliases
+        self.memory_preferences = memory_preferences
 
     @staticmethod
-    def _match(kind, target=None, value=None, confidence=0.96):
-        intent = CommandIntent(kind, target, value, confidence)
+    def _match(kind, target=None, value=None, confidence=0.96, memory_type=None):
+        intent = CommandIntent(kind, target, value, confidence, memory_type=memory_type)
         return InterpretationResult(True, intent, reason=MatchReason.SMART_MATCH, confidence=confidence)
 
     def interpret(self, text: str) -> InterpretationResult:
@@ -27,12 +28,17 @@ class RuleBasedIntentInterpreter(IntentInterpreter):
         phrase = normalized.text
         if phrase in HELP_PHRASES or text.strip() == '?':
             return self._match(IntentType.SHOW_HELP)
-        if phrase in {'what is my name', 'tell me my name', 'do you remember my name'}:
-            return self._match(IntentType.MEMORY_QUERY, target='user.name')
-        # Values are extracted from the original text to preserve the name's casing.
-        memory = re.fullmatch(r'(?:remember|save)\s+my\s+name\s+as\s+(.+)|my\s+name\s+is\s+(.+?),?\s+remember\s+that[.!]?', text.strip(), re.IGNORECASE)
+        # Memory values are extracted before any linguistic normalization.
+        memory = memory_store_parts(text)
         if memory:
-            return self._match(IntentType.MEMORY_STORE, target='user.name', value=memory[1] or memory[2])
+            target, memory_type, value = memory
+            return self._match(IntentType.MEMORY_STORE, target, value, memory_type=memory_type)
+        query = memory_query_target(phrase)
+        if query:
+            return self._match(IntentType.MEMORY_QUERY, query[0], memory_type=query[1])
+        forgotten = memory_forget_target(phrase)
+        if forgotten:
+            return self._match(IntentType.MEMORY_FORGET, forgotten[0], memory_type=forgotten[1])
         for kind, prefixes in ((IntentType.WEB_SEARCH, SEARCH_PREFIXES), (IntentType.PLAY_MEDIA, MUSIC_PREFIXES)):
             for prefix in prefixes:
                 if phrase.startswith(prefix + ' '):
@@ -58,6 +64,8 @@ class RuleBasedIntentInterpreter(IntentInterpreter):
             candidate = candidate[4:]
         if candidate.endswith(' ah'):
             candidate = candidate[:-3]
+        if self.memory_preferences and candidate in PREFERENCE_TARGETS:
+            return self._match(IntentType.OPEN_APPLICATION, PREFERENCE_TARGETS[candidate], confidence=confidence)
         candidate = NAME_ALIASES.get(candidate, candidate)
         matches = [(kind, target) for kind, aliases in ((IntentType.OPEN_APPLICATION, self.application_aliases),
                                                        (IntentType.OPEN_WEBSITE, self.website_aliases))

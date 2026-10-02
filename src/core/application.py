@@ -3,19 +3,21 @@ import json
 import re
 import sqlite3
 import uuid
+import time
 from dataclasses import asdict, replace
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from . import secrets
+from .memory import MemoryService, HabitEngine
 from ..config.settings import settings
 from ..services.windows_launcher import WindowsLauncher
 from ..services.software_discovery import DiscoveredApplication, RegisteredApplication, ApplicationValidator, ValidationStatus, DiscoverySource
 from ..services.software_discovery.validator import canonical_path
 from ..commands.interpreter.patterns import APPLICATION_ALIASES, WEBSITE_ALIASES
 from ..commands.interpreter import (AUTO_EXECUTE_THRESHOLD, CommandIntent, InterpretationResult, IntentType, MatchReason,
-                                    RuleBasedIntentInterpreter, IntentResolver)
+                                    RuleBasedIntentInterpreter, IntentResolver, MemoryResolver)
 from ..commands.interpreter.normalizer import normalize_input
 from ..commands.voice_phrases import normalize_mixed_voice
 from ..utils.logger import get_logger
@@ -58,11 +60,12 @@ class ApplicationCore:
         self.db.execute('PRAGMA trusted_schema=OFF')
         self.db.execute('PRAGMA journal_mode=WAL')
         self.launcher = launcher if launcher is not None else WindowsLauncher()
-        self.interpreter = RuleBasedIntentInterpreter()
+        self.interpreter = RuleBasedIntentInterpreter(memory_preferences=True)
         self.intent_resolver = IntentResolver()
         self.listeners = []
+        self._memory_confirmations = {}
         version = self.db.execute('PRAGMA user_version').fetchone()[0]
-        if version > 2:
+        if version > 3:
             raise ValueError('This database requires a newer Pet Animal version.')
         if version == 0:
             migration = settings.BASE_DIR / 'src/database/migrations/001_initial.sql'
@@ -70,12 +73,25 @@ class ApplicationCore:
         if version < 2:
             migration = settings.BASE_DIR / 'src/database/migrations/002_registered_applications.sql'
             self.db.executescript('BEGIN;\n' + migration.read_text(encoding='utf-8-sig') + '\nCOMMIT;')
+        if version < 3:
+            migration = settings.BASE_DIR / 'src/database/migrations/003_personal_memory_engine.sql'
+            try:
+                self.db.executescript('BEGIN;\n' + migration.read_text(encoding='utf-8-sig') + '\nCOMMIT;')
+            except Exception:
+                self.db.rollback()
+                self.db.close()
+                raise
         self._seed()
+        self.memory_service = MemoryService(self.db, changed=self.changed)
+        self.memory_retriever = self.memory_service.retriever
+        self.memory_resolver = MemoryResolver(self.memory_retriever)
+        self.habit_engine = HabitEngine(self.memory_service)
         if isinstance(self.launcher, WindowsLauncher):
             self.launcher.registered_application_lookup = self.get_registered_application
         self._refresh_application_aliases()
 
     def close(self):
+        self.memory_service.close_session()
         self.db.close()
 
     def changed(self):
@@ -115,86 +131,30 @@ class ApplicationCore:
             raise ValueError('Choose an existing category.')
         return found[0]
 
-    def memories(self, query='', category_id=None):
-        # Sensitive values are never decrypted by a listing/search operation.
-        args = [f'%{query}%', f'%{query}%', f'%{query}%', f'%{query}%']
-        sql = '''SELECT m.*, c.name AS category, c.sensitive FROM memories m JOIN memory_categories c ON c.id=m.category_id
-                 WHERE (m.title LIKE ? OR m.memory_key LIKE ? OR m.description LIKE ? OR (c.sensitive=0 AND m.memory_value LIKE ?))'''
-        if category_id:
-            sql += ' AND m.category_id=?'
-            args.append(category_id)
-        result = self.rows(sql + ' ORDER BY m.updated_at DESC', args)
-        for row in result:
-            if row['sensitive']:
-                row['memory_value'] = '••••••••'
-        return result
+    def memories(self, query='', category_id=None, **filters):
+        return self.memory_service.list_memories(query, category_id, **filters)
 
     def get_memory(self, memory_id, reveal=False):
-        rows = self.rows('SELECT m.*, c.sensitive FROM memories m JOIN memory_categories c ON c.id=m.category_id WHERE m.id=?', (memory_id,))
-        if not rows:
-            return None
-        row = rows[0]
-        if row['sensitive']:
-            row['memory_value'] = secrets.decrypt(row['memory_value']) if reveal else '••••••••'
-        return row
+        return self.memory_service.get_memory(memory_id, reveal=reveal)
 
-    def get_memory_by_key(self, key):
-        rows = self.rows('SELECT id FROM memories WHERE memory_key=? AND enabled=1', (key,))
-        return self.get_memory(rows[0]['id']) if rows else None
+    def get_memory_by_key(self, key, consume=True):
+        return self.memory_service.get_memory_by_key(key, consume=consume)
 
-    def save_memory(self, category_id, title, key, value, description='', enabled=True, memory_id=None):
-        category = self._category(category_id)
-        title, key, value = text(title, 'Title', 150), text(key, 'Key', 200), text(value, 'Value', 20000)
-        if not isinstance(description, str) or len(description) > 4000:
-            raise ValueError('Description is too long.')
-        if category['sensitive']:
-            value = secrets.encrypt(value)
-        memory_id = memory_id or identifier()
-        stamp = now()
-        with self.db:
-            self.db.execute('''INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-                category_id=excluded.category_id,title=excluded.title,memory_key=excluded.memory_key,memory_value=excluded.memory_value,
-                description=excluded.description,enabled=excluded.enabled,updated_at=excluded.updated_at''',
-                (memory_id, category_id, title, key, value, description, int(bool(enabled)), stamp, stamp))
-        self.changed()
-        return memory_id
+    def save_memory(self, category_id, title, key, value, description='', enabled=True, memory_id=None, **metadata):
+        # An explicit ID edit is the established Manager's confirmed user action.
+        if memory_id is None and self.rows('SELECT id FROM memories WHERE memory_key=?', (key,)):
+            raise sqlite3.IntegrityError('Memory key already exists.')
+        return self.memory_service.save_memory(category_id, title, key, value, description,
+                                               enabled, memory_id, confirmed=bool(memory_id), **metadata)
 
     def delete_memory(self, memory_id):
-        with self.db:
-            self.db.execute('DELETE FROM memories WHERE id=?', (memory_id,))
-        self.changed()
+        self.memory_service.delete_memory(memory_id)
 
     def export_memories(self):
-        result = self.rows('''SELECT m.title,m.memory_key,m.memory_value,m.description,m.enabled,c.name AS category
-                    FROM memories m JOIN memory_categories c ON m.category_id=c.id WHERE c.sensitive=0''')
-        return dict(version=1, memories=result)
+        return self.memory_service.export_memories()
 
     def import_memories(self, payload):
-        if not isinstance(payload, dict) or payload.get('version') != 1 or not isinstance(payload.get('memories'), list) or len(payload['memories']) > 10000:
-            raise ValueError('Invalid memory export.')
-        prepared = []
-        keys = set()
-        for record in payload['memories']:
-            if not isinstance(record, dict):
-                raise ValueError('Invalid memory record.')
-            key = text(record.get('memory_key'), 'Key', 200)
-            if key in keys or self.rows('SELECT id FROM memories WHERE memory_key=?', (key,)):
-                raise ValueError(f'Memory key already exists: {key}. Import does not overwrite data.')
-            keys.add(key)
-            category = text(record.get('category'), 'Category', 100)
-            existing = self.rows('SELECT sensitive FROM memory_categories WHERE name=?', (category,))
-            if existing and existing[0]['sensitive']:
-                raise ValueError('Sensitive categories cannot be imported from plain JSON.')
-            description = record.get('description', '')
-            if not isinstance(description, str) or len(description) > 4000 or record.get('enabled', 1) not in (0, 1):
-                raise ValueError('Invalid memory properties.')
-            prepared.append((category, text(record.get('title'), 'Title', 150), key, text(record.get('memory_value'), 'Value', 20000), description, record.get('enabled', 1)))
-        with self.db:
-            for category, title, key, value, description, enabled in prepared:
-                self.db.execute('INSERT OR IGNORE INTO memory_categories VALUES (?,?,0)', (identifier(), category))
-                category_id = self.rows('SELECT id FROM memory_categories WHERE name=?', (category,))[0]['id']
-                self.db.execute('INSERT INTO memories VALUES (?,?,?,?,?,?,?,?,?)', (identifier(), category_id, title, key, value, description, enabled, now(), now()))
-        self.changed()
+        return self.memory_service.import_memories(payload, strict=True)
 
     @staticmethod
     def validate_action(action, target):
@@ -360,8 +320,6 @@ class ApplicationCore:
         logger.info('Application registration removed; related commands disabled')
 
     def _refresh_application_aliases(self):
-        if not isinstance(self.interpreter, RuleBasedIntentInterpreter):
-            return
         aliases = {key: set(names) for key, names in APPLICATION_ALIASES.items()}
         applications = self.list_registered_applications()
         display_counts = Counter(normalize(app.name) for app in applications)
@@ -380,7 +338,9 @@ class ApplicationCore:
                         if match:
                             names.add(match[1])
             aliases[app.id] = names
-        self.interpreter.application_aliases = aliases
+        self._application_aliases = aliases
+        if isinstance(self.interpreter, RuleBasedIntentInterpreter):
+            self.interpreter.application_aliases = aliases
 
     def _write_command(self, command_id, name, action, target, phrases, enabled=True, builtin=False):
         name = text(name, 'Command name', 150)
@@ -392,7 +352,7 @@ class ApplicationCore:
             raise ValueError('Duplicate phrases in this command.')
         if any(p == 'help' or p.startswith('remember my name as ') or
                ((intent := self.interpreter.interpret(p).intent) is not None and
-                intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY)) for p in normalized):
+                intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.MEMORY_FORGET)) for p in normalized):
             raise ValueError('This phrase is reserved for memory or help.')
         for phrase in normalized:
             if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=? AND command_id<>?', (phrase, command_id)):
@@ -419,14 +379,85 @@ class ApplicationCore:
         return text(value, 'Name', 150)
 
     def confirm_name(self, value):
-        category = self.rows("SELECT id FROM memory_categories WHERE name='Personal Information'")[0]['id']
-        rows = self.rows('SELECT id FROM memories WHERE memory_key=?', ('user.name',))
-        existing = rows[0] if rows else None
-        return self.save_memory(category, 'My name', 'user.name', self.propose_memory(value), memory_id=existing['id'] if existing else None)
+        category = next(c['id'] for c in self.categories() if c['name'] == 'Personal Information')
+        existing = self.memory_service.find_existing('user.name')
+        return self.memory_service.save_memory(category, 'My name', 'user.name', self.propose_memory(value),
+            memory_id=existing['id'] if existing else None, confirmed=True,
+            memory_type='PROFILE', source='COMMAND')
+
+    def propose_memory_intent(self, intent):
+        """Stage an explicit write/delete for one runtime, without persisting its payload."""
+        key = text(intent.target, 'Memory key', 200)
+        existing = self.memory_service.find_existing(key)
+        if existing:
+            key = existing['memory_key']
+        if existing and existing['sensitive']:
+            raise ValueError('Use the Memory Manager to change sensitive memories.')
+        if existing and ((existing['memory_scope'] == 'PROFILE' and existing['scope_id'] != self.memory_service.profile_id) or
+                         (existing['memory_scope'] == 'PET_PROFILE' and existing['scope_id'] != self.active_profile()['id'])):
+            raise ValueError('This memory belongs to another profile. Review it in the Memory Manager.')
+        operation = 'delete' if intent.intent == IntentType.MEMORY_FORGET else 'save'
+        if operation == 'delete' and not existing:
+            return dict(success=False, message='That memory has not been saved.', pet_state='idle')
+        value = None if operation == 'delete' else text(intent.value, 'Memory value', 20000)
+        if key == 'user.name' and value is not None:
+            value = self.propose_memory(value)
+        stamp = time.monotonic()
+        self._memory_confirmations = {token: draft for token, draft in self._memory_confirmations.items()
+                                      if stamp - draft['created'] < 300}
+        if len(self._memory_confirmations) >= 100:
+            self._memory_confirmations.clear()
+        token = identifier()
+        self._memory_confirmations[token] = dict(operation=operation, key=key, value=value,
+            memory_type=getattr(intent, 'memory_type', None) or ('PROFILE' if key.startswith('user.') else 'KNOWLEDGE'),
+            existing_id=existing['id'] if existing else None,
+            revision=existing['updated_at'] if existing else None, created=stamp,
+            profile_id=self.memory_service.profile_id, pet_profile_id=self.active_profile()['id'],
+            session_id=self.memory_service.session_id)
+        message = f'Forget {key}?' if operation == 'delete' else (
+            f'Replace {key} with the supplied value?' if existing else f'Save {key}?')
+        if key == 'user.name' and operation == 'save':
+            message = f'Save your name as {value}?'
+        result = dict(success=False, message=message, memory_confirmation=token, pet_state='thinking')
+        # Preserve the public legacy name proposal while the controller uses the guarded token.
+        if key == 'user.name' and operation == 'save':
+            result['confirmation'] = value
+        return result
+
+    def confirm_memory(self, token):
+        draft = self._memory_confirmations.pop(token, None)
+        if not draft or time.monotonic() - draft['created'] >= 300:
+            raise ValueError('This memory confirmation expired. Submit the request again.')
+        if (draft['profile_id'] != self.memory_service.profile_id or
+                draft['pet_profile_id'] != self.active_profile()['id'] or
+                draft['session_id'] != self.memory_service.session_id):
+            raise ValueError('The memory profile changed. Submit the request again.')
+        existing = self.memory_service.find_existing(draft['key'])
+        if ((existing['id'] if existing else None) != draft['existing_id'] or
+                (existing['updated_at'] if existing else None) != draft['revision']):
+            raise ValueError('This memory changed. Review it and submit the request again.')
+        if draft['operation'] == 'delete':
+            self.delete_memory(existing['id'])
+            return dict(success=True, message='Memory deleted.', pet_state='success')
+        memory_type = draft['memory_type']
+        category_name = 'Personal Information' if memory_type == 'PROFILE' else ('Important Notes' if memory_type == 'NOTE' else 'Custom')
+        category_id = next(c['id'] for c in self.categories() if c['name'] == category_name)
+        metadata = dict(memory_type=memory_type, source='COMMAND')
+        if memory_type == 'CONTEXT':
+            metadata.update(memory_scope='SESSION', lifetime='session')
+        self.memory_service.save_memory(category_id, draft['key'], draft['key'], draft['value'],
+            memory_id=existing['id'] if existing else None, confirmed=True, **metadata)
+        return dict(success=True, message='Your name is saved.' if draft['key'] == 'user.name' else 'Memory saved.', pet_state='success')
+
+    def cancel_memory_confirmation(self, token):
+        self._memory_confirmations.pop(token, None)
 
     def resolve_voice_phrase(self, phrase):
         """Compatibility helper; live typed and speech submission use interpret() directly."""
         if not isinstance(phrase, str) or len(phrase) > 500:
+            return phrase
+        parsed = self.interpret(phrase)
+        if parsed.intent and parsed.intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.MEMORY_FORGET):
             return phrase
         normalized = normalize(phrase)
         if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=?', (normalized,)):
@@ -468,6 +499,12 @@ class ApplicationCore:
         if memory:
             intent = CommandIntent(IntentType.MEMORY_STORE, 'user.name', memory[1], source='reserved')
             return InterpretationResult(True, intent, reason=MatchReason.EXACT_PHRASE, confidence=1.0)
+        result = self.interpreter.interpret(phrase)
+        # Explicit memory grammar stays reserved even in a pre-upgrade registry.
+        if result.matched and result.intent and result.intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.MEMORY_FORGET):
+            if not AUTO_EXECUTE_THRESHOLD <= result.intent.confidence <= 1.0:
+                return InterpretationResult(False, result.intent, reason=MatchReason.LOW_CONFIDENCE, confidence=result.intent.confidence)
+            return result
         registered = self._registered_interpretation(phrase, MatchReason.EXACT_PHRASE)
         if registered is not None:
             return registered
@@ -475,16 +512,15 @@ class ApplicationCore:
         registered = self._registered_interpretation(translated, MatchReason.VOICE_NORMALIZED)
         if registered is not None:
             return registered
-        result = self.interpreter.interpret(phrase)
         if not result.matched:
             return result
         if result.intent is None:
             return InterpretationResult(reason=MatchReason.UNKNOWN_INTENT)
-        if result.intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.SHOW_HELP):
+        if result.intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.MEMORY_FORGET, IntentType.SHOW_HELP):
             if not AUTO_EXECUTE_THRESHOLD <= result.intent.confidence <= 1.0:
                 return InterpretationResult(False, result.intent, reason=MatchReason.LOW_CONFIDENCE, confidence=result.intent.confidence)
             return result
-        return self.intent_resolver.resolve(result.intent, self.commands())
+        return self.memory_resolver.resolve(result.intent, self.commands(), self._application_aliases)
 
     @staticmethod
     def interpretation_message(result):
@@ -511,17 +547,21 @@ class ApplicationCore:
             return dict(success=False, message=self.interpretation_message(interpretation), pet_state='error')
         intent = interpretation.intent if interpretation.matched else None
         if intent and intent.intent == IntentType.MEMORY_QUERY:
-            memory = self.get_memory_by_key('user.name')
-            return dict(success=bool(memory), message=memory['memory_value'] if memory else 'Your name has not been saved.', pet_state='success' if memory else 'idle')
-        if intent and intent.intent == IntentType.MEMORY_STORE:
             try:
-                value = self.propose_memory(intent.value)
-                return dict(success=False, message=f'Save your name as {value}?', confirmation=value, pet_state='thinking')
+                memory = self.get_memory_by_key(intent.target)
+            except ValueError:
+                return dict(success=False, message='Invalid memory query.', pet_state='error')
+            message = (('Sensitive memory is saved. Reveal it in the Memory Manager.' if memory['sensitive'] else memory['memory_value'])
+                       if memory else ('Your name has not been saved.' if intent.target == 'user.name' else 'That memory has not been saved.'))
+            return dict(success=bool(memory), message=message, pet_state='success' if memory else 'idle')
+        if intent and intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_FORGET):
+            try:
+                return self.propose_memory_intent(intent)
             except ValueError as error:
                 return dict(success=False, message=str(error), pet_state='error')
         if intent and intent.intent == IntentType.SHOW_HELP:
             names = [c['phrases'][0] for c in self.commands() if c['enabled']]
-            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nBrowser: search <query>; play <song> on youtube\nMemory: remember my name as <name>; what is my name', pet_state='idle')
+            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nBrowser: search <query>; play <song> on youtube\nMemory: remember my name as <name>; save my preferred browser as <app>; what is my editor; forget my preferred browser', pet_state='idle')
         found = self.rows('SELECT * FROM commands WHERE id=? AND enabled=1', (interpretation.command_id,)) if interpretation.matched else []
         command_id = None
         if not found:
@@ -552,6 +592,9 @@ class ApplicationCore:
                     elif app and (app.needs_repair or ApplicationValidator.validate_registered_path(app.executable_path)[0] != ValidationStatus.VALID):
                         success, message = False, f'{app.name} could not be found or is unsafe. Rediscover it in Commands.'
                     else:
+                        if interpretation.memory_id:
+                            if self.memory_retriever.consume(interpretation.memory_id) is None:
+                                raise ValueError('The stored preference is no longer available.')
                         success, message = self.launcher.open_application(target)
                 else:
                     success, message = self.launcher.open_registered_url(target)
@@ -785,17 +828,21 @@ class ApplicationCore:
             stored.close()
         candidate.row_factory = sqlite3.Row
         try:
+            candidate.execute('PRAGMA foreign_keys=ON')
             candidate.execute('PRAGMA trusted_schema=OFF')
             version = candidate.execute('PRAGMA user_version').fetchone()[0]
-            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or version not in (1, 2) or candidate.execute('PRAGMA foreign_key_check').fetchall():
+            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or version not in (1, 2, 3) or candidate.execute('PRAGMA foreign_key_check').fetchall():
                 raise ValueError('Invalid or incompatible backup.')
             if version == 1:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/002_registered_applications.sql').read_text(encoding='utf-8-sig'))
+            if version < 3:
+                candidate.executescript((settings.BASE_DIR / 'src/database/migrations/003_personal_memory_engine.sql').read_text(encoding='utf-8-sig'))
             # Require the application's exact schema: no injected triggers/views or altered constraints.
             current_schema = {(r[0], r[1], r[2], r[3]) for r in self.db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
             backup_schema = {(r[0], r[1], r[2], r[3]) for r in candidate.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
             if current_schema != backup_schema:
                 raise ValueError('Backup schema does not match this application.')
+            MemoryService.validate_backup(candidate)
             for row in candidate.execute('SELECT * FROM registered_applications').fetchall():
                 registration = dict(row)
                 registration['aliases'] = [alias[0] for alias in candidate.execute('SELECT alias FROM application_aliases WHERE application_id=?', (row['id'],))]
@@ -828,9 +875,13 @@ class ApplicationCore:
             self.validate_settings(imported_settings)
             for row in candidate.execute('SELECT m.memory_value FROM memories m JOIN memory_categories c ON c.id=m.category_id WHERE c.sensitive=1'):
                 secrets.decrypt(row[0])
+            # A backup must never resume its former runtime's temporary session.
+            candidate.execute("DELETE FROM memories WHERE lifetime='session'")
             self.backup()  # Recovery snapshot before replacing the live database.
             candidate.commit()
             candidate.backup(self.db)
+            self.memory_service.cleanup_session(startup=True)
+            self._memory_confirmations.clear()
         finally:
             candidate.close()
         self.changed()

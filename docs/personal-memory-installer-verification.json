@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "version": "2.0.0",
+  "software_discovery": {
+    "candidates": 281,
+    "launchable": 71
+  },
+  "personal_memory_engine": {
+    "schema_version": 3,
+    "preference_resolution": true,
+    "aliases_tags_relationships": true,
+    "access_tracking": true,
+    "dpapi_safe_export": true,
+    "session_restore_cleanup": true,
+    "habit_analysis_on_demand": true
+  },
+  "checks": [
+    "SQLite migration",
+    "memory persistence",
+    "backup restore",
+    "six Manager pages",
+    "live profile switching",
+    "independent Manager closing",
+    "offline English and Tamil engines, models, native decoder, and voice command routing",
+    "smart command resolution, negation and parse-only Manager tester",
+    "software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal",
+    "quit cleanup"
+  ],
+  "installer_archive_verified": true
+}

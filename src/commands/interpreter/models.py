@@ -14,6 +14,7 @@ class IntentType(str, Enum):
     SHOW_HELP = 'SHOW_HELP'
     MEMORY_STORE = 'MEMORY_STORE'
     MEMORY_QUERY = 'MEMORY_QUERY'
+    MEMORY_FORGET = 'MEMORY_FORGET'
     UNKNOWN = 'UNKNOWN'
 
 
@@ -39,6 +40,7 @@ class CommandIntent:
     value: str | None = None
     confidence: float = 1.0
     source: str = 'rule_based'
+    memory_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -48,3 +50,4 @@ class InterpretationResult:
     command_id: str | None = None
     reason: MatchReason = MatchReason.UNKNOWN_INTENT
     confidence: float = 0.0
+    memory_id: str | None = None

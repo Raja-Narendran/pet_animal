@@ -8,8 +8,9 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLa
     QPushButton, QListWidget, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QLineEdit, QComboBox, QDialog, QFormLayout,
     QLayout, QDialogButtonBox, QTextEdit, QCheckBox, QFileDialog,
-    QMessageBox, QInputDialog, QProgressBar, QSlider)
+    QMessageBox, QInputDialog, QProgressBar, QSlider, QDoubleSpinBox)
 from ..core.application import DEFAULT_PET, identifier
+from ..core.memory import MemoryType, MemoryScope, MemoryLifetime, MemoryConflict
 from ..config.settings import settings
 from .software_discovery import SoftwareDiscoveryState, SoftwareDiscoveryPanel
 
@@ -53,6 +54,9 @@ class ManagerWindow(QMainWindow):
         self.page = core.app_settings()['page']
         self.memory_query = ''
         self.memory_category = None
+        self.memory_type = self.memory_scope = self.memory_state = None
+        self.memory_sort = 'updated'
+        self.memory_selected_id = None
         self.activity_status = self.activity_date = ''
         self.activity_command = None
         root = QWidget()
@@ -190,7 +194,7 @@ class ManagerWindow(QMainWindow):
         return table
 
     def page_dashboard(self):
-        memory = self.core.get_memory_by_key('user.name')
+        memory = self.core.get_memory_by_key('user.name', consume=False)
         greeting = 'Welcome back' + (', ' + memory['memory_value'] if memory and not memory['sensitive'] else '')
         self.heading(greeting, 'A little companion. A more personal workspace.', [
             button('Add memory', self.edit_memory, icon='brain'),
@@ -244,52 +248,199 @@ class ManagerWindow(QMainWindow):
         layout.addWidget(button('Open memory', lambda: self.navigation.setCurrentRow(1), icon='arrow-right'))
         self.content_layout.addWidget(frame)
 
+    @staticmethod
+    def memory_choice(enum, current=None, all_label=None):
+        choice = QComboBox()
+        if all_label:
+            choice.addItem(all_label, None)
+        for item in enum:
+            choice.addItem(item.value.replace('_', ' ').title(), item.value)
+        choice.setCurrentIndex(max(0, choice.findData(current)))
+        return choice
+
     def page_memory(self):
-        self.heading('Long-term memory', 'Structured information, saved locally. Sensitive values use Windows user encryption.', [button('Add memory', self.edit_memory, True, 'brain')])
-        bar = QWidget()
-        row = QHBoxLayout(bar)
-        search = QLineEdit(self.memory_query)
-        search.setPlaceholderText('Search title, key or description…')
-        categories = QComboBox()
-        categories.addItem('All categories', None)
+        self.heading('Personal memory', 'Your profile, preferences and knowledge, saved locally and under your control.', [button('Add memory', self.edit_memory, True, 'brain')])
+        filters = QWidget()
+        rows = QVBoxLayout(filters)
+        rows.setContentsMargins(0, 0, 0, 0)
+        search_row, filter_row = QHBoxLayout(), QHBoxLayout()
+        self.memory_search = QLineEdit(self.memory_query)
+        self.memory_search.setObjectName('memorySearch')
+        self.memory_search.setPlaceholderText('Search title, key, description, tags or aliases…')
+        self.memory_categories = QComboBox()
+        self.memory_categories.addItem('All categories', None)
         for category in self.core.categories():
-            categories.addItem(category['name'], category['id'])
-        categories.setCurrentIndex(max(0, categories.findData(self.memory_category)))
+            self.memory_categories.addItem(category['name'], category['id'])
+        self.memory_categories.setCurrentIndex(max(0, self.memory_categories.findData(self.memory_category)))
+        self.memory_types = self.memory_choice(MemoryType, self.memory_type, 'All types')
+        # Internal system records have their own scope and are deliberately hidden here.
+        system_index = self.memory_types.findData('SYSTEM')
+        if system_index >= 0:
+            self.memory_types.removeItem(system_index)
+        self.memory_scopes = self.memory_choice(MemoryScope, self.memory_scope, 'All scopes')
+        self.memory_states = QComboBox()
+        for title, state in [('All states', None), ('Enabled', 'enabled'), ('Disabled', 'disabled'), ('Sensitive', 'sensitive'), ('Expired', 'expired')]:
+            self.memory_states.addItem(title, state)
+        self.memory_states.setCurrentIndex(max(0, self.memory_states.findData(self.memory_state)))
+        self.memory_usage = QComboBox()
+        for title, order in [('Recently updated', 'updated'), ('Recently used', 'recently_used'), ('Most used', 'most_used')]:
+            self.memory_usage.addItem(title, order)
+        self.memory_usage.setCurrentIndex(max(0, self.memory_usage.findData(self.memory_sort)))
         def filter_rows():
-            self.memory_query, self.memory_category = search.text(), categories.currentData()
-            self.fill_memories()
-        search.textChanged.connect(filter_rows)
-        categories.currentIndexChanged.connect(filter_rows)
-        row.addWidget(search, 2)
-        row.addWidget(categories, 1)
-        row.addWidget(button('New category', self.new_category))
-        self.content_layout.addWidget(bar)
-        self.memory_table = self.table(['Title', 'Category', 'Value', 'Enabled'], [])
-        self.content_layout.addWidget(self.memory_table)
-        self.fill_memories()
+            self.memory_query = self.memory_search.text()
+            self.memory_category = self.memory_categories.currentData()
+            self.memory_type = self.memory_types.currentData()
+            self.memory_scope = self.memory_scopes.currentData()
+            self.memory_state = self.memory_states.currentData()
+            self.memory_sort = self.memory_usage.currentData()
+            self.guard(self.fill_memories)
+        self.memory_search.textChanged.connect(filter_rows)
+        for choice in (self.memory_categories, self.memory_types, self.memory_scopes, self.memory_states, self.memory_usage):
+            choice.currentIndexChanged.connect(filter_rows)
+        search_row.addWidget(self.memory_search, 2)
+        search_row.addWidget(self.memory_categories, 1)
+        search_row.addWidget(button('New category', self.new_category))
+        for choice in (self.memory_types, self.memory_scopes, self.memory_states, self.memory_usage):
+            filter_row.addWidget(choice)
+        rows.addLayout(search_row)
+        rows.addLayout(filter_row)
+        self.content_layout.addWidget(filters)
+        health = self.core.memory_service.memory_health()
+        self.memory_health_label = label(' · '.join(f"{name}: {health[key]}" for name, key in [('Total', 'total'), ('Active', 'active'), ('Disabled', 'disabled'), ('Expired', 'expired'), ('Sensitive', 'sensitive'), ('Habit candidates', 'habit_candidates'), ('Never used (30+ days)', 'unused')]), 'muted')
+        self.content_layout.addWidget(self.memory_health_label)
+        self.memory_table = self.table(['Title', 'Type / scope', 'Category', 'Value', 'Used', 'Enabled'], [])
+        self.memory_table.setObjectName('memoryTable')
+        self.memory_table.setWordWrap(False)
+        self.memory_table.itemSelectionChanged.connect(self.show_selected_memory)
         self.memory_table.doubleClicked.connect(lambda: self.selected_memory(self.edit_memory))
+        self.content_layout.addWidget(self.memory_table)
+        self.memory_details, self.memory_details_layout = self.card('Memory details')
+        self.content_layout.addWidget(self.memory_details)
+        self.fill_memories()
         actions = QWidget()
         row = QHBoxLayout(actions)
-        row.addWidget(button('Edit / reveal selected', lambda: self.selected_memory(self.edit_memory)))
-        row.addWidget(button('Delete selected', lambda: self.selected_memory(lambda record: self.confirm('Delete memory', 'Permanently delete this memory?', lambda: self.core.delete_memory(record['id'])))))
-        row.addWidget(button('Export memories', lambda: self.export_json(self.core.export_memories(), 'memories.json')))
-        row.addWidget(button('Import memories', lambda: self.import_json(self.core.import_memories)))
+        row.addWidget(button('Safe export', lambda: self.export_json(self.core.export_memories(), 'memories.json')))
+        row.addWidget(button('Import memories', self.import_memory_json))
+        row.addWidget(button('Full encrypted backup', self.backup_memory_database))
+        row.addWidget(button('Clean expired memories', self.clean_expired_memories))
         self.content_layout.addWidget(actions)
-        self.content_layout.addWidget(label('Ordinary JSON exports exclude all sensitive categories. Database backups retain encrypted values.', 'muted'))
+        self.content_layout.addWidget(label('Safe JSON exports exclude sensitive categories. Full SQLite backups retain values encrypted for this Windows user. Unused memories are kept until you delete them.', 'muted'))
+        self.render_habit_candidates()
 
     def fill_memories(self):
-        self.memory_records = self.core.memories(self.memory_query, self.memory_category)
+        state = self.memory_state
+        self.memory_records = self.core.memory_service.list_memories(
+            self.memory_query, self.memory_category, memory_type=self.memory_type,
+            memory_scope=self.memory_scope, enabled=True if state == 'enabled' else False if state == 'disabled' else None,
+            sensitive=True if state == 'sensitive' else None, expired=True if state == 'expired' else None,
+            include_expired=True, sort=self.memory_sort)
+        self.memory_table.blockSignals(True)
         self.memory_table.setRowCount(len(self.memory_records))
+        self.memory_table.setMinimumHeight(min(420, max(160, 52 * (len(self.memory_records) + 1))))
+        selected_row = -1
         for index, record in enumerate(self.memory_records):
-            for column, key in enumerate(('title', 'category', 'memory_value', 'enabled')):
-                value = ('Yes' if record[key] else 'No') if key == 'enabled' else record[key]
-                self.memory_table.setItem(index, column, QTableWidgetItem(str(value)))
+            values = (record['title'], record['memory_type'].title() + ' / ' + record['memory_scope'].replace('_', ' ').title(),
+                      record['category'], record['memory_value'], record['access_count'], 'Yes' if record['enabled'] else 'No')
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                item.setToolTip(str(value))
+                self.memory_table.setItem(index, column, item)
             self.memory_table.setRowHeight(index, 48)
+            if record['id'] == self.memory_selected_id:
+                selected_row = index
+        if selected_row >= 0:
+            self.memory_table.selectRow(selected_row)
+        else:
+            self.memory_table.clearSelection()
+            self.memory_table.setCurrentCell(-1, -1)
+        self.memory_table.blockSignals(False)
+        self.show_selected_memory()
 
     def selected_memory(self, callback):
         index = self.memory_table.currentRow()
-        if index >= 0:
+        if 0 <= index < len(self.memory_records):
             self.guard(lambda: callback(self.memory_records[index]))
+
+    def show_selected_memory(self):
+        while self.memory_details_layout.count() > 1:
+            item = self.memory_details_layout.takeAt(1)
+            if item.widget():
+                item.widget().hide()
+                item.widget().deleteLater()
+        index = self.memory_table.currentRow()
+        if not 0 <= index < len(self.memory_records):
+            self.memory_details_layout.addWidget(label('Select a memory to inspect its value, provenance and usage.', 'muted'))
+            return
+        record = self.core.get_memory(self.memory_records[index]['id'])
+        if not record:
+            return
+        self.memory_selected_id = record['id']
+        self.memory_value_revealed = False
+        body = QWidget()
+        form = QFormLayout(body)
+        form.setContentsMargins(0, 0, 0, 0)
+        self.memory_detail_value = QTextEdit()
+        self.memory_detail_value.setPlainText(record['memory_value'])
+        self.memory_detail_value.setObjectName('memoryDetailValue')
+        self.memory_detail_value.setReadOnly(True)
+        self.memory_detail_value.setMaximumHeight(100)
+        form.addRow('Title', label(record['title']))
+        form.addRow('Key', label(record['memory_key']))
+        form.addRow('Value', self.memory_detail_value)
+        if record['sensitive']:
+            self.memory_reveal_button = button('Reveal value', lambda: self.reveal_memory_value(record['id']))
+            form.addRow('', self.memory_reveal_button)
+        category = next((cat['name'] for cat in self.core.categories() if cat['id'] == record['category_id']), '')
+        confidence = 'Not specified' if record['confidence'] is None else f"{record['confidence']:.2f}"
+        fields = [('Type', record['memory_type'].title()), ('Scope', record['memory_scope'].replace('_', ' ').title()),
+                  ('Category', category), ('Lifetime', record['lifetime'].title()), ('Expires', self.local_time(record['expires_at']) if record['expires_at'] else 'No expiry'),
+                  ('Importance', f"{record['importance']:.2f}"), ('Confidence', confidence), ('Source', record['source'].replace('_', ' ').title()),
+                  ('Created', self.local_time(record['created_at'])), ('Updated', self.local_time(record['updated_at'])),
+                  ('Last used', self.local_time(record['last_accessed_at']) if record['last_accessed_at'] else 'Never'),
+                  ('Usage count', str(record['access_count'])), ('Tags', ', '.join(record['tags']) or 'None'),
+                  ('Aliases', ', '.join(record['aliases']) or 'None'), ('Sensitive', 'Yes — Windows user encryption' if record['sensitive'] else 'No'),
+                  ('Description', record['description'] or 'None')]
+        for name, value in fields:
+            form.addRow(name, label(value))
+        self.memory_details_layout.addWidget(body)
+        actions = QWidget()
+        row = QHBoxLayout(actions)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(button('Edit memory', lambda: self.guard(lambda: self.edit_memory(record))))
+        row.addWidget(button('Disable' if record['enabled'] else 'Enable', lambda: self.guard(lambda: self.core.memory_service.update_memory(record['id'], enabled=not bool(record['enabled'])))))
+        row.addWidget(button('Delete memory', lambda: self.confirm('Delete memory', 'Permanently delete this memory and its relationships?', lambda: self.core.delete_memory(record['id']))))
+        self.memory_details_layout.addWidget(actions)
+        relationships = self.core.memory_service.get_relationships(record['id'])
+        relation_widget = QWidget()
+        layout = QVBoxLayout(relation_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(label('Relationships', 'subheading'))
+        relations = self.table(['From', 'Relationship', 'To'], [(r['source_title'], r['relationship_type'], r['target_title']) for r in relationships])
+        layout.addWidget(relations)
+        relation_actions = QHBoxLayout()
+        relation_actions.addWidget(button('Add relationship', lambda: self.add_memory_relationship(record)))
+        def remove_relation():
+            selected = relations.currentRow()
+            if 0 <= selected < len(relationships):
+                relation_id = relationships[selected]['id']
+                self.confirm('Delete relationship', 'Remove this connection between memories?', lambda: self.core.memory_service.delete_relationship(relation_id))
+        relation_actions.addWidget(button('Delete selected relationship', remove_relation))
+        layout.addLayout(relation_actions)
+        self.memory_details_layout.addWidget(relation_widget)
+
+    def reveal_memory_value(self, memory_id):
+        def reveal():
+            if self.memory_value_revealed:
+                self.memory_detail_value.setPlainText('••••••••')
+                self.memory_value_revealed = False
+                self.memory_reveal_button.setText('Reveal value')
+                return
+            record = self.core.get_memory(memory_id, reveal=True)
+            if record:
+                self.memory_detail_value.setPlainText(record['memory_value'])
+                self.memory_value_revealed = True
+                self.memory_reveal_button.setText('Hide value')
+        self.guard(reveal)
 
     def new_category(self):
         name, ok = QInputDialog.getText(self, 'New category', 'Category name')
@@ -301,31 +452,214 @@ class ManagerWindow(QMainWindow):
         if isinstance(record, bool):
             record = None
         if record:
-            record = self.core.get_memory(record['id'], reveal=True)
+            record = self.core.get_memory(record['id'])
         dialog, form, buttons = self.dialog('Edit memory' if record else 'Add memory')
+        # The larger metadata editor remains usable on smaller desktop displays.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        fields_widget = QWidget()
+        fields_form = QFormLayout(fields_widget)
+        scroll.setWidget(fields_widget)
+        form.addRow(scroll)
+        dialog.resize(650, 780)
         category = QComboBox()
         for cat in self.core.categories():
             category.addItem(cat['name'], cat['id'])
         if record:
             category.setCurrentIndex(category.findData(record['category_id']))
         title = QLineEdit(record['title'] if record else '')
-        value = QTextEdit(record['memory_value'] if record else '')
+        title.setObjectName('memoryTitle')
+        key = QLineEdit(record['memory_key'] if record else 'custom.' + identifier())
+        key.setObjectName('memoryKey')
+        key.setPlaceholderText('e.g. user.name or preferred.browser')
+        sensitive = bool(record and record['sensitive'])
+        value = QTextEdit()
+        value.setPlainText('' if sensitive else record['memory_value'] if record else '')
+        value.setObjectName('memoryValue')
         value.setMaximumHeight(120)
+        if sensitive:
+            value.setPlaceholderText('Encrypted value is preserved. Reveal it or enter a replacement.')
+        value_changed = [False]
+        value.textChanged.connect(lambda: value_changed.__setitem__(0, True))
         description = QLineEdit(record['description'] if record else '')
-        enabled = QCheckBox('Available to explicit memory commands')
+        memory_type = self.memory_choice(MemoryType, record['memory_type'] if record else 'NOTE')
+        system_index = memory_type.findData('SYSTEM')
+        if system_index >= 0:
+            memory_type.removeItem(system_index)
+        memory_type.setObjectName('memoryType')
+        scope = self.memory_choice(MemoryScope, record['memory_scope'] if record else 'GLOBAL')
+        scope.setObjectName('memoryScope')
+        owner = QLineEdit((record.get('scope_id') or '') if record else '')
+        lifetime = self.memory_choice(MemoryLifetime, record['lifetime'] if record else 'persistent')
+        lifetime.setObjectName('memoryLifetime')
+        expiry = QLineEdit((record['expires_at'] or '') if record else '')
+        expiry.setObjectName('memoryExpiry')
+        expiry.setPlaceholderText('Optional timestamp, e.g. 2026-10-03T18:00:00+05:30')
+        importance = QDoubleSpinBox()
+        importance.setRange(0, 1)
+        importance.setSingleStep(0.1)
+        importance.setValue(record['importance'] if record else 0.5)
+        importance_set = QCheckBox('Override type default')
+        importance_set.setChecked(bool(record))
+        importance.setEnabled(importance_set.isChecked())
+        importance_set.toggled.connect(importance.setEnabled)
+        importance_row = QWidget()
+        importance_layout = QHBoxLayout(importance_row)
+        importance_layout.setContentsMargins(0, 0, 0, 0)
+        importance_layout.addWidget(importance_set)
+        importance_layout.addWidget(importance)
+        confidence = QDoubleSpinBox()
+        confidence.setRange(0, 1)
+        confidence.setSingleStep(0.1)
+        confidence.setValue(record['confidence'] if record and record['confidence'] is not None else 1.0)
+        confidence_set = QCheckBox('Specified')
+        confidence_set.setChecked(not record or record['confidence'] is not None)
+        confidence.setEnabled(confidence_set.isChecked())
+        confidence_set.toggled.connect(confidence.setEnabled)
+        confidence_row = QWidget()
+        confidence_layout = QHBoxLayout(confidence_row)
+        confidence_layout.setContentsMargins(0, 0, 0, 0)
+        confidence_layout.addWidget(confidence_set)
+        confidence_layout.addWidget(confidence)
+        tags = QLineEdit(', '.join(record['tags']) if record else '')
+        tags.setObjectName('memoryTags')
+        tags.setPlaceholderText('Comma-separated tags')
+        aliases = QTextEdit()
+        aliases.setPlainText('\n'.join(record['aliases']) if record else '')
+        aliases.setObjectName('memoryAliases')
+        aliases.setPlaceholderText('One alias per line')
+        aliases.setMaximumHeight(90)
+        enabled = QCheckBox('Available to memory commands and retrieval')
         enabled.setChecked(bool(record['enabled']) if record else True)
-        for name, widget in [('Category', category), ('Title', title), ('Value', value), ('Description / tags', description), ('Enabled', enabled)]:
-            form.addRow(name, widget)
-        form.addRow(label('Memory keys are generated internally. Sensitive values stay out of search, logs, history and exports.', 'muted'))
+        for name, widget in [('Category', category), ('Title', title), ('Key', key), ('Value', value)]:
+            fields_form.addRow(name, widget)
+        if sensitive:
+            def reveal_edit():
+                revealed = self.core.get_memory(record['id'], reveal=True)
+                value.setPlainText(revealed['memory_value'])
+            fields_form.addRow('', button('Reveal encrypted value', lambda: self.guard(reveal_edit)))
+        for name, widget in [('Description', description), ('Type', memory_type), ('Scope', scope), ('Scope owner (optional)', owner), ('Lifetime', lifetime),
+                             ('Expires at', expiry), ('Importance', importance_row), ('Confidence', confidence_row), ('Tags', tags), ('Aliases', aliases), ('Enabled', enabled)]:
+            fields_form.addRow(name, widget)
+        fields_form.addRow(label('Use a sensitive category for private values. Session memories are removed on restart. Temporary memories expire after five minutes unless you set an expiry. Conflicting changes require confirmation.', 'muted'))
         def save():
             def perform():
-                key = record['memory_key'] if record else 'custom.' + identifier()
-                self.core.save_memory(category.currentData(), title.text(), key, value.toPlainText(), description.text(), enabled.isChecked(), record['id'] if record else None)
+                fields = dict(category_id=category.currentData(), title=title.text(), key=key.text(), description=description.text(), enabled=enabled.isChecked(),
+                              memory_type=memory_type.currentData(), memory_scope=scope.currentData(), scope_id=owner.text().strip() or None,
+                              lifetime=lifetime.currentData(), expires_at=expiry.text().strip() or None,
+                              confidence=confidence.value() if confidence_set.isChecked() else None,
+                              tags=[tag.strip() for tag in tags.text().split(',') if tag.strip()],
+                              aliases=[alias.strip() for alias in aliases.toPlainText().splitlines() if alias.strip()])
+                if importance_set.isChecked():
+                    fields['importance'] = importance.value()
+                if not sensitive or value_changed[0]:
+                    fields['value'] = value.toPlainText()
+                def apply(confirmed=False):
+                    if record:
+                        return self.core.memory_service.update_memory(record['id'], confirmed=confirmed, **fields)
+                    return self.core.memory_service.create_memory(**fields)
+                try:
+                    apply()
+                except MemoryConflict as conflict:
+                    existing = conflict.existing
+                    message = f"The saved memory “{existing['title']}” conflicts with these changes ({conflict.conflict_type.value.replace('_', ' ').lower()}). Replace the existing information?"
+                    if QMessageBox.question(dialog, 'Replace saved memory', message, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+                        return
+                    if record:
+                        apply(True)
+                    else:
+                        self.core.memory_service.update_memory(existing['id'], confirmed=True, **fields)
                 dialog.accept()
             self.guard(perform)
         form.addRow(buttons)
         buttons.accepted.connect(save)
         dialog.exec()
+
+    def add_memory_relationship(self, record):
+        dialog, form, buttons = self.dialog('Add memory relationship')
+        form.addRow('From', label(record['title']))
+        relation_type = QLineEdit()
+        relation_type.setPlaceholderText('e.g. works_on, prefers, uses')
+        target = QComboBox()
+        for item in self.core.memories():
+            if item['id'] != record['id']:
+                target.addItem(item['title'] + ' · ' + item['memory_key'], item['id'])
+        form.addRow('Relationship', relation_type)
+        form.addRow('To', target)
+        form.addRow(buttons)
+        def save():
+            def apply():
+                self.core.memory_service.create_relationship(record['id'], relation_type.text(), target.currentData())
+                dialog.accept()
+            self.guard(apply)
+        buttons.accepted.connect(save)
+        dialog.exec()
+
+    def render_habit_candidates(self):
+        frame, layout = self.card('Activity patterns')
+        layout.addWidget(label('Analyze local command activity on demand. Patterns become memories only when you approve them.', 'muted'))
+        layout.addWidget(button('Analyze activity', lambda: self.guard(self.analyze_memory_habits)))
+        candidates = self.core.habit_engine.list_candidates()
+        self.habit_candidates = candidates
+        if not candidates:
+            layout.addWidget(label('No pending habit candidates.', 'muted'))
+        for candidate in candidates:
+            item = QWidget()
+            row = QHBoxLayout(item)
+            row.setContentsMargins(0, 0, 0, 0)
+            title = candidate.get('title') or ('Frequently opened application' if candidate['candidate_type'] == 'APPLICATION' else 'Frequently used command')
+            row.addWidget(label(f"{title}\n{candidate['candidate_value']} · {candidate['evidence_count']} executions · confidence {candidate['confidence']:.2f}"), 1)
+            row.addWidget(button('Save habit', lambda checked=False, selected=candidate: self.confirm_habit_candidate(selected)))
+            row.addWidget(button('Reject', lambda checked=False, selected=candidate: self.guard(lambda: self.core.habit_engine.reject(selected['id']))))
+            layout.addWidget(item)
+        self.content_layout.addWidget(frame)
+
+    def analyze_memory_habits(self):
+        self.core.habit_engine.analyze()
+        self.refresh()
+
+    def confirm_habit_candidate(self, candidate):
+        def save():
+            try:
+                self.core.habit_engine.accept(candidate['id'])
+            except MemoryConflict:
+                self.confirm('Replace saved habit', 'This candidate conflicts with a saved memory. Replace the saved information?', lambda: self.core.habit_engine.accept(candidate['id'], confirmed=True))
+        self.confirm('Save activity pattern', f"Save this activity pattern as a habit?\n{candidate['candidate_value']}\nEvidence: {candidate['evidence_count']} executions.", save)
+
+    def clean_expired_memories(self):
+        def clean():
+            count = self.core.memory_service.expire_memories(delete=True)
+            QMessageBox.information(self, 'Expired memories cleaned', f'{count} expired memories removed.')
+        self.confirm('Clean expired memories', 'Permanently remove expired memories and their relationships?', clean)
+
+    def backup_memory_database(self):
+        path, _ = QFileDialog.getSaveFileName(self, 'Full encrypted database backup', str(self.core.root / 'backups' / 'personal-memory.db'), 'SQLite database (*.db)')
+        if path:
+            self.guard(lambda: QMessageBox.information(self, 'Backup created', str(self.core.backup(path))))
+
+    def import_memory_json(self):
+        path, _ = QFileDialog.getOpenFileName(self, 'Import memories', '', 'JSON (*.json)')
+        if not path:
+            return
+        def preview():
+            if Path(path).stat().st_size > 10 * 1024 * 1024:
+                raise ValueError('JSON imports must be under 10 MB.')
+            payload = json.loads(Path(path).read_text(encoding='utf-8-sig'))
+            summary = self.core.memory_service.preview_import(payload)
+            message = '\n'.join(f"{summary[key]} {title}" for key, title in [('new', 'new memories'), ('duplicates', 'duplicates'), ('conflicts', 'conflicts'), ('invalid', 'invalid records')])
+            if summary['invalid']:
+                QMessageBox.warning(self, 'Import summary', message + '\n\nFix invalid records before importing.')
+                return
+            if summary['conflicts']:
+                message += '\n\nReplace conflicting memories with the imported records?'
+            else:
+                message += '\n\nApply this import? Duplicate memories will be kept.'
+            def apply():
+                self.core.memory_service.import_memories(payload, confirm_conflicts=bool(summary['conflicts']))
+                QMessageBox.information(self, 'Import complete', 'Validated memories imported successfully.')
+            self.confirm('Import summary', message, apply)
+        self.guard(preview)
 
     def dialog(self, title):
         dialog = QDialog(self)

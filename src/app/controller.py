@@ -133,7 +133,17 @@ class ApplicationController(QObject):
             worker.completed.connect(lambda success, message, action=worker.action: self._browser_completed(action, success, message))
             worker.finished.connect(lambda: self._release_browser_worker(worker))
             worker.start()
-        if 'confirmation' in result:
+        if 'memory_confirmation' in result:
+            token = result['memory_confirmation']
+            if QMessageBox.question(parent or self.pet, 'Confirm memory', result['message'], QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+                try:
+                    result = self.core.confirm_memory(token)
+                except ValueError as error:
+                    result = dict(success=False, message=str(error), pet_state='error')
+            else:
+                self.core.cancel_memory_confirmation(token)
+                result = dict(success=False, message='Memory was not changed.', pet_state='idle')
+        elif 'confirmation' in result:
             value = result['confirmation']
             if QMessageBox.question(parent or self.pet, 'Confirm memory', result['message'], QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
                 try:

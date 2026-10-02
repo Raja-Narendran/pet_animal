@@ -15,7 +15,7 @@ For a fresh environment, use Python 3.10 or newer, create `.venv`, and install `
 ## Use the app
 
 - **Dashboard:** live memory and command counts, executions today, active pet, recent activity, and quick actions.
-- **Memory:** add/edit/delete records; search titles, keys, descriptions and nonsensitive values; filter by database-backed categories; disable individual memories; import/export JSON. Memory keys are internal. Categories can optionally encrypt their values.
+- **Memory:** manage profile, preference, knowledge, habit, relationship, note and context records; filter by type, scope, category, state and usage; inspect sources, confidence, access counts, tags, aliases and relationships. Reveal sensitive values explicitly. Analyze activity to review habit candidates, clean expired records with confirmation, and preview safe imports.
 - **Commands:** configure phrases per action, detect conflicts, enable/disable, edit, delete and test. **Test Understanding** parses a request without executing it or saving history; **Test selected** executes the configured action.
 - **Pet Studio:** select existing husky sheets or import a PNG sheet; create, edit and activate profiles; adjust size, desktop position, always-on-top, animation, and chat appearance. Preview changes before saving. Saving updates the floating pet immediately.
 - **Activity:** filter executions by command, status or local date. Clear history with confirmation.
@@ -39,7 +39,7 @@ remember my name as Naren
 what is my name
 ```
 
-A `remember` command proposes the value and displays a Yes/No confirmation before saving `user.name`. `save my name as Naren` and `my name is Naren, remember that` use that same confirmation. `tell me my name` and `do you remember my name` retrieve only the existing explicit name record. These memory phrases are reserved. Repeating a store updates the same record. Cancel leaves memory unchanged. Memory commands do not enter command history. Unsupported input is recorded only as `[unsupported command]`; smart action history records the resolved registered phrase.
+A `remember` or `save` command proposes the value and displays a Yes/No confirmation before saving. `save my name as Naren` and `my name is Naren, remember that` use the same confirmation. Queries retrieve the requested structured record; replacement and deletion require confirmation. These memory phrases are reserved. Cancel leaves memory unchanged. Memory commands do not enter command history. Unsupported input is recorded only as `[unsupported command]`; smart action history records the resolved registered phrase.
 
 ## Storage and privacy
 
@@ -139,3 +139,33 @@ V1 discovery registration supports local `.exe` files without shortcut arguments
 See [docs/software-discovery-verification.md](docs/software-discovery-verification.md) for architecture, changed files, test results, and release verification boundaries.
 
 See [docs/software-discovery-auto-add-verification.md](docs/software-discovery-auto-add-verification.md) for the latest one-click Refresh behavior and verification.
+
+## Personal Memory Engine
+
+Memory remains in the existing SQLite database. Migration 003 preserves old IDs, values, timestamps and DPAPI ciphertext while adding type, scope, lifetime, importance, confidence, source, expiry and usage metadata. The new headless `src/core/memory` API owns validation, CRUD, deterministic retrieval, relationships, lifecycle and habit candidates. No model, embedding service or cloud storage is involved.
+
+Explicit commands propose saves and deletions before persistence:
+
+```text
+remember my name as Naren
+save my preferred browser as Chrome
+remember my editor is VS Code
+remember project.pet_animal.path as K:\pet_animal
+what is my pet animal project path
+what browser do I prefer
+open my browser
+open my editor
+forget my preferred browser
+```
+
+`preferred.browser` and `preferred.editor` resolve only to approved application IDs or aliases and then pass through the existing command resolver, enabled-command checks and launcher validation. Unavailable, sensitive, low-confidence or unsafe saved preferences cannot launch an application. Exact registered phrases retain precedence. Pending confirmations expire after five minutes and reject stale changes or profile switches. Memory commands and their values stay outside command history.
+
+Retrieval prioritizes exact keys, aliases, exact titles, tags and metadata/text matches. Importance, confidence, recency and capped usage provide small ranking bonuses. Only consumed retrieval updates access metadata; Manager lists, details, Dashboard rendering and **Test Understanding** remain read-only. Sensitive values are masked and never searched as decrypted text.
+
+Session memories are removed on shutdown and startup. Temporary records expire by timestamp without per-record timers; expired records stop participating in retrieval and can be inspected and cleaned in Memory. Profile and pet-profile scopes restrict applicability to their owner. System records are hidden from ordinary lists.
+
+**Analyze activity** considers successful registered executions over the last 90 days. Five uses of a command or ten launches of an application produce a candidate. Saving a candidate requires approval and creates a habit, with source `HABIT_ENGINE`; it does not silently change a preference. Rejection suppresses repeat suggestions for at least 30 days and requires additional evidence before reconsideration.
+
+Safe JSON exports exclude sensitive records and relationships involving excluded records. Import preview reports new records, duplicates, conflicts and invalid records before applying changes. Full SQLite backups preserve DPAPI encryption. Restore validates the new memory entities alongside the existing schema, command, asset and settings safeguards, and does not revive backed-up runtime sessions.
+
+See [docs/personal-memory-engine.md](docs/personal-memory-engine.md) for the implementation and executed verification report.
