@@ -6,6 +6,8 @@ from .pet_window import PetWindow
 from .manager_window import ManagerWindow
 from ..utils.sprite import SpriteManager
 from ..config.settings import settings
+from ..services.file_search import FileSearchResponse, FileSearchService
+import threading
 
 
 class BrowserWorker(QThread):
@@ -24,11 +26,35 @@ class BrowserWorker(QThread):
         self.completed.emit(success, message)
 
 
+class FileSearchWorker(QThread):
+    completed = pyqtSignal(object)
+
+    def __init__(self, service, intent, token, parent):
+        super().__init__(parent)
+        self.service, self.intent, self.token = service, intent, token
+        self.cancel_event = threading.Event()
+        self.opened_history = parent.core.file_open_records()
+
+    def cancel(self):
+        self.cancel_event.set()
+
+    def run(self):
+        try:
+            response = self.service.search(self.intent, cancel=self.cancel_event)
+            if isinstance(self.service, FileSearchService):
+                response = self.service.merge_activity(response, self.intent, self.opened_history, cancel=self.cancel_event)
+        except Exception:
+            response = FileSearchResponse(partial=True, notice='File search could not finish. Review Settings → Local file search.')
+        if not self.cancel_event.is_set():
+            self.completed.emit(response)
+
+
 class ApplicationController(QObject):
     def __init__(self, core, parent=None):
         super().__init__(parent)
         self.core = core
         self._browser_workers = set()
+        self._file_workers = set()
         self._shutting_down = False
         self._shortcut_dismissed = False
         self._shortcut_submitting = False
@@ -38,10 +64,14 @@ class ApplicationController(QObject):
         self.pet.command_box.voice_command_submitted.disconnect()
         self.pet.command_box.voice_command_submitted.connect(self.submit_voice)
         self.pet.command_box.input_field.setPlaceholderText('Hi!!')
+        self.pet.command_box.input_field.setToolTip('Use @ to open an app, /name to find a file, or /name folder to find a folder.')
         self.pet.command_box.input_field.setMaxLength(500)
         self.pet.command_box.input_field.textChanged.connect(self._shortcut_text_changed)
         self.pet.command_box.input_field.installEventFilter(self)
         self.pet.response_bubble.application_selected.connect(self._application_selected)
+        self.pet.response_bubble.file_selected.connect(self._file_selected)
+        self.pet.response_bubble.file_sort_selected.connect(self._file_sort_selected)
+        self.pet.response_bubble.file_dismissed.connect(self._dismiss_file_results)
         self.pet.close_btn.clicked.disconnect()
         self.pet.close_btn.clicked.connect(self.hide_pet)
         self.pet.close_btn.setToolTip('Hide floating pet')
@@ -144,15 +174,34 @@ class ApplicationController(QObject):
             bubble = pet.response_bubble
             if event.type() == QEvent.Type.Hide:
                 bubble.dismiss_suggestions()
-            elif event.type() == QEvent.Type.KeyPress and bubble.suggestion_mode and bubble.isVisible():
+            elif event.type() == QEvent.Type.KeyPress and (bubble.suggestion_mode or bubble.file_mode) and bubble.isVisible():
+                if bubble.file_mode and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not watched.text().strip():
+                    if bubble.selected_file:
+                        self._file_selected(bubble.file_token, bubble.selected_file)
+                    return True
                 if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
                     bubble.move_selection(-1 if event.key() == Qt.Key.Key_Up else 1)
                     return True
                 if event.key() == Qt.Key.Key_Escape:
+                    if bubble.file_mode:
+                        bubble.dismiss_files()
+                        return True
                     self._shortcut_dismissed = True
                     bubble.dismiss_suggestions()
                     return True
         return super().eventFilter(watched, event)
+
+    def _dismiss_file_results(self):
+        self.core.file_session.clear()
+        self._cancel_superseded_file_workers()
+
+    def _file_selected(self, token, result_id):
+        if not self._shutting_down:
+            self._show_result(self.core.open_file_result(token, result_id))
+
+    def _file_sort_selected(self, token, order):
+        if not self._shutting_down:
+            self._show_result(self.core.sort_file_results(token, order))
 
     def _application_selected(self, target):
         if self._shutting_down or self._shortcut_submitting or not self.pet.response_bubble.suggestion_mode:
@@ -165,6 +214,7 @@ class ApplicationController(QObject):
             self.pet.command_box.input_field.clear()
             self.pet.response_bubble.dismiss_suggestions()
             self._show_result(self.core.execute_application_shortcut(target))
+            self._cancel_superseded_file_workers()
         finally:
             self._shortcut_submitting = False
 
@@ -179,7 +229,14 @@ class ApplicationController(QObject):
         self.core.save_position(self.pet.x(), self.pet.y())
 
     def execute(self, phrase, parent=None):
-        result = self.core.execute(phrase, defer_browser=True)
+        result = self.core.execute(phrase, defer_browser=True, defer_file_search=True)
+        self._cancel_superseded_file_workers()
+        if 'file_search_intent' in result:
+            worker = FileSearchWorker(self.core.file_search, result['file_search_intent'], result['file_search_token'], self)
+            self._file_workers.add(worker)
+            worker.completed.connect(lambda response, w=worker: self._file_search_completed(w, response))
+            worker.finished.connect(lambda w=worker: self._release_file_worker(w))
+            worker.start()
         if 'browser_action' in result:
             worker = BrowserWorker(self.core.launcher, result['browser_action'], result['browser_target'], self)
             self._browser_workers.add(worker)
@@ -208,6 +265,22 @@ class ApplicationController(QObject):
                 result = dict(success=False, message='Memory was not changed.', pet_state='idle')
         return result
 
+    def _cancel_superseded_file_workers(self):
+        for worker in self._file_workers:
+            if worker.token != self.core.file_session.token:
+                worker.cancel()
+
+    def _file_search_completed(self, worker, response):
+        if self._shutting_down or worker.cancel_event.is_set():
+            return
+        result = self.core.finish_file_search(worker.token, worker.intent, response)
+        if result is not None:
+            self._show_result(result)
+
+    def _release_file_worker(self, worker):
+        self._file_workers.discard(worker)
+        worker.deleteLater()
+
     def _release_browser_worker(self, worker):
         self._browser_workers.discard(worker)
         worker.deleteLater()
@@ -220,7 +293,12 @@ class ApplicationController(QObject):
 
     def _show_result(self, result):
         """Display results from typed, voice, and asynchronous browser commands."""
-        self.pet.response_bubble.show_message(result['message'])
+        if 'file_results' in result:
+            self.pet.response_bubble.show_file_results(result)
+        elif result.get('file_search'):
+            self.pet.response_bubble.show_message(result['message'], timeout_ms=30000, wrap_paths=True)
+        else:
+            self.pet.response_bubble.show_message(result['message'])
         self.pet.pet.set_state(result['pet_state'], temporary_ms=3000)
 
     def submit_voice(self, phrase):
@@ -292,6 +370,9 @@ class ApplicationController(QObject):
         if self._shutting_down:
             return
         self._shutting_down = True
+        for worker in list(self._file_workers):
+            worker.cancel()
+            worker.wait()
         self.manager.software_state.shutdown()
         self.pet.pet.anim_timer.stop()
         self.pet.tray_icon.hide()

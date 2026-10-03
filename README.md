@@ -1,6 +1,6 @@
 # Pet Animal 2.0
 
-An offline, local-first, privacy-focused Windows desktop companion featuring a transparent floating Husky pet, an interactive command bar with `@` application autocomplete, bundled multilingual speech recognition (English + Tamil + Tanglish), persistent personal memory with Windows DPAPI encryption, software discovery, and a full-featured 6-page native Manager window.
+An offline, local-first, privacy-focused Windows desktop companion featuring a transparent floating Husky pet, an interactive command bar with `@` application autocomplete and `/` local file search, bundled multilingual speech recognition (English + Tamil + Tanglish), persistent personal memory with Windows DPAPI encryption, software discovery, and a full-featured 6-page native Manager window.
 
 Pet Animal 2.0 runs natively on Windows with Python and PyQt6. Both windows share a single headless application core and local SQLite database. The entire application operates completely offline without external HTTP backends, cloud telemetry, or remote AI APIs.
 
@@ -39,6 +39,13 @@ Pet Animal 2.0 runs natively on Windows with Python and PyQt6. Both windows shar
   - [Reserved Memory & Help Phrases](#reserved-memory--help-phrases)
   - [Confidence Gating & Clarification](#confidence-gating--clarification)
   - [Web Search & YouTube Playback](#web-search--youtube-playback)
+- [Local File & Folder Search](#local-file--folder-search)
+  - [Command Grammar & Query Syntax](#command-grammar--query-syntax)
+  - [Interactive Balloon & Keyboard Navigation](#interactive-balloon--keyboard-navigation)
+  - [Smart Ranking & Recency Modes](#smart-ranking--recency-modes)
+  - [Dual-Backend Engine & Everything Integration](#dual-backend-engine--everything-integration)
+  - [Scope Configuration & Manager Settings](#scope-configuration--manager-settings)
+  - [Security Invariants & Privacy Protections](#security-invariants--privacy-protections)
 - [Storage, Privacy & Security Invariants](#storage-privacy--security-invariants)
   - [Local Storage Layout](#local-storage-layout)
   - [Windows DPAPI Encryption](#windows-dpapi-encryption)
@@ -46,7 +53,7 @@ Pet Animal 2.0 runs natively on Windows with Python and PyQt6. Both windows shar
   - [Safe Database Backup & Restore](#safe-database-backup--restore)
   - [Zero Shell Execution Guarantee](#zero-shell-execution-guarantee)
 - [Development, Testing & Verification](#development-testing--verification)
-  - [Automated Test Suite (774 Tests)](#automated-test-suite-774-tests)
+  - [Automated Test Suite (866 Tests)](#automated-test-suite-866-tests)
   - [Headless Diagnostic Self-Test](#headless-diagnostic-self-test)
   - [Packaging the Windows Release & Installer](#packaging-the-windows-release--installer)
   - [Release Artifact Verification](#release-artifact-verification)
@@ -343,6 +350,9 @@ Application preferences and database maintenance:
 - **Voice Recognition Mode**:
   - `Offline English (Vosk)`: Lightweight CPU speech recognition with streaming partial words.
   - `Multilingual Offline (Whisper Small)`: Bundled neural model for English, Tamil, and Tanglish.
+- **Local File Search**:
+  - `Search Folders`: Configure custom directory roots (one per line, up to 32 paths) to restrict filesystem searches to chosen folders and workspace trees.
+  - `Everything CLI (es.exe)`: Configure custom path to Voidtools Everything command-line executable (`es.exe`) or rely on automatic detection.
 - **Storage & Diagnostics**:
   - **Open Logs Folder**: Opens `%LOCALAPPDATA%\PetAnimal\logs` in File Explorer.
   - **Export Configuration**: Saves settings, commands, profiles, and registered applications to JSON.
@@ -392,23 +402,27 @@ User Input (Typed or Spoken)
   │
   ├─► [1] Input Validation (≤ 500 chars, no control characters)
   │
-  ├─► [2] Mandatory Negation Veto (e.g. "don't open chrome" ➔ CANCELLED)
+  ├─► [2] File Search Slash Shortcut & Cancel (/query, "no", "cancel")
   │
-  ├─► [3] '@' Application Shortcut (Direct lookup of registered application)
+  ├─► [3] Mandatory Negation Veto (e.g. "don't open chrome" ➔ CANCELLED)
   │
-  ├─► [4] Reserved Phrases Check (help, name storage, memory commands)
+  ├─► [4] '@' Application Shortcut (Direct lookup of registered application)
   │
-  ├─► [5] Exact Registered Phrase Match (SQLite registered command phrases win)
+  ├─► [5] Reserved Phrases Check (help, name storage, memory commands)
   │
-  ├─► [6] Multilingual / Tanglish Voice Normalization
+  ├─► [6] Natural Language File/Folder Search (e.g. "find report.xlsx", "search folders for pet")
   │
-  ├─► [7] Rule-Based Intent Interpretation (Verbs: open, launch, search, play)
+  ├─► [7] Exact Registered Phrase Match (SQLite registered command phrases win)
   │
-  ├─► [8] Live Intent Resolver (Matches enabled commands & aliases)
+  ├─► [8] Multilingual / Tanglish Voice Normalization
   │
-  ├─► [9] Confidence Gate (≥ 0.85 auto-executes; < 0.85 prompts clarification)
+  ├─► [9] Rule-Based Intent Interpretation (Verbs: open, launch, search, play)
   │
-  └─► [10] Safe Launcher Execution (Validated WindowsLauncher or Background Worker)
+  ├─► [10] Live Intent Resolver (Matches enabled commands & aliases)
+  │
+  ├─► [11] Confidence Gate (≥ 0.85 auto-executes; < 0.85 prompts clarification)
+  │
+  └─► [12] Safe Launcher Execution (Validated WindowsLauncher or Background Worker)
 ```
 
 ### Negation Veto
@@ -459,6 +473,106 @@ The following deterministic patterns are reserved:
 
 ---
 
+## Local File & Folder Search
+
+Pet Animal 2.0 provides an offline, privacy-preserving desktop search engine for local files and directories. Query files or folders directly from the floating companion's command box or offline voice input, review results in a dedicated interactive balloon with mouse and keyboard navigation, and open documents directly in their default Windows applications.
+
+### Command Grammar & Query Syntax
+
+File search supports fast slash shortcuts, natural language expressions, and multi-turn conversational follow-ups:
+
+| Input Phrase | Behavior |
+| :--- | :--- |
+| `/report.xlsx` or `Find report.xlsx` | Shows matching files in the interactive balloon. |
+| `/pet folder` or `Find pet folder` | Searches specifically for matching folders and displays them in Explorer upon launch. |
+| `Search files for notes` / `Locate budget.csv` | Natural language file search equivalent to slash syntax. |
+| `Search folders for source` / `Find folder src` | Explicit folder search across local directories. |
+| `Find my package.xml` | Offers a unique Salesforce project match when one is uniquely identifiable. |
+| `Yes` | Confirms and opens an offered Salesforce or unique project match. |
+| `Open it` | Opens the currently highlighted or unique result in its default Windows application. |
+| `Show results`, `Next results`, `Previous results` | Paginates through retained results (5 rows per page). |
+| `Open 2` or `Open result 3` | Launches a specific numbered result from the list. |
+| `the Salesforce one` | Resolves and opens a uniquely named project folder match. |
+| `Open the most recent one` / `Open the latest one` | Selects and opens the match with the newest filesystem modification date. |
+| `No` or `Cancel` | Clears active search selection and dismisses the balloon. |
+
+- **Slash Shortcut (`/`)**: Searches files by default. Adding `folder` (e.g. `/pet folder`) searches directories.
+- **Literal Names & Quotes**: Names can contain spaces and Unicode characters (e.g. `/சென்னை.txt`, `/my report.xlsx`). Wrapping names in quotes (e.g. `/"my folder"`, `/"don't stop.txt"`) preserves literal punctuation and prevents collision with negation or grammar rules.
+- **Extension Inference**: File extensions are inferred automatically (e.g. `/report.pdf` or `find package.xml` infers `.pdf` and `.xml` extension filters).
+- **Separation of Parsing and I/O**: Parsing is completely decoupled from filesystem access. The interpreter generates a structured `CommandIntent` (`IntentType.FILE_SEARCH`) without touching disk:
+
+```json
+{
+  "intent": "FILE_SEARCH",
+  "query": "PREPRODRELEASE.yml",
+  "filters": {"extension": ".yml"},
+  "action": "FIND"
+}
+```
+
+- **Conversational Context**: Follow-up commands (`open it`, `yes`, `open 2`, `the <project> one`, `open the latest one`) resolve against the active `FileSearchSession` without re-running disk scans.
+
+### Interactive Balloon & Keyboard Navigation
+
+Results appear in an interactive floating balloon positioned directly above the companion:
+
+- **Rich Visual List**: Displays up to 5 visible result rows with a native scrollbar. Each item displays a distinct file or folder icon, item name, containing parent directory, and date badge.
+- **Full Path Tooltips**: Hovering over any result reveals its complete absolute path.
+- **One-Click Mouse Opening**: Click any result row once to immediately open it in its default Windows registered handler or File Explorer.
+- **Keyboard Navigation**:
+  - <kbd>↑</kbd> and <kbd>↓</kbd> arrow keys in the command input box highlight previous/next results.
+  - <kbd>Enter</kbd> (when input box is empty) immediately opens the highlighted result.
+  - <kbd>Esc</kbd> or clicking the close button (`×`) dismisses the search balloon.
+- **Persistent Session State**: Search results remain interactive after opening an item, allowing you to launch multiple related files from the same search session without repeating the query.
+- **Automatic Expiry**: Sessions expire after 5 minutes of inactivity, or upon executing an unrelated command, initiating a new search, or closing the companion.
+
+### Smart Ranking & Recency Modes
+
+The balloon header provides interactive sorting controls to rearrange retained results instantly in memory:
+
+- **Recently opened (Default)**: Combines Windows Recent Items metadata (inspected via native COM `IShellLink::GetPath` without executing shortcuts) with Pet Animal's persistent open history (`file_open_history` table). Items opened recently appear first with an "opened" badge; unrecorded items follow, sorted by modification date with a "No recent-open record" label.
+- **Recently changed**: Sorts results strictly by filesystem modification timestamp (`mtime` descending).
+- **Instant Re-Sorting**: Toggling between sort modes rearranges existing results in memory without issuing new disk scans.
+
+### Dual-Backend Engine & Everything Integration
+
+Pet Animal incorporates a hybrid search engine combining instant index lookups with a robust offline disk traversal fallback:
+
+1. **Voidtools Everything Integration (`es.exe`)**:
+   - Primary high-speed engine when available.
+   - Communicates with Voidtools Everything's local service via the official `es.exe` command-line client over local IPC.
+   - Searches entire NTFS volumes in milliseconds with zero network overhead.
+   - Constructed with safe argument lists, escaped regex filters, and temporary UTF-8 CSV exports that are immediately deleted upon reading.
+   - Auto-detected at `%LOCALAPPDATA%\PetAnimal\integrations\everything\es.exe`, system `PATH`, or standard install paths (`C:\Program Files\Everything`).
+   - Seamlessly falls back to local disk traversal if Everything is stopped, uninstalled, or times out.
+
+2. **Bounded Offline Disk Traversal (Built-in Fallback)**:
+   - 100% offline, zero-dependency recursive directory walker that runs out-of-the-box.
+   - Prioritized search roots: User libraries (`Documents`, `Desktop`, `Downloads`, `Projects`), current working directory, and user home directory, followed by fixed local drives (`C:\`, `D:\`).
+   - Safety boundaries: Hard limit of 5.0 seconds and 100,000 scanned entries; caps retained results at 200 matches.
+   - Smart Exclusion Filters: Skips system and cache directories (`Windows`, `AppData`, `Program Files`, `node_modules`, `.git`, `.venv`, `$Recycle.Bin`, etc.), directory junctions/symlinks, and offline cloud placeholders (OneDrive, iCloud).
+   - Incomplete Search Indicators: Clearly flags when traversal limits are reached so you know results are partial, and safely disables automatic single-match launches on partial sets.
+
+### Scope Configuration & Manager Settings
+
+Configure search boundaries and binary paths in **Manager Window → Settings → Local file search**:
+
+- **Custom Search Folders**: Enter explicit directories (one per line, up to 32 roots), such as `D:\Projects` or `K:\pet_animal`. Limiting scope restricts searches strictly to your active development and document trees.
+- **Everything Executable Path**: Specify an explicit path to `es.exe` if not located on standard paths.
+- **Persistence**: Scope preferences survive database backup/restore and JSON configuration export/import.
+
+### Security Invariants & Privacy Protections
+
+Local file search adheres strictly to Pet Animal's offline security and privacy invariants:
+
+- **Document-Only Launching**: Files are launched exclusively through `os.startfile(path, 'open')` using registered Windows associations. Folders are opened in File Explorer.
+- **Strict Executable & Script Blacklist**: Strictly rejects over 30 dangerous binary and script extensions (`.exe`, `.bat`, `.cmd`, `.ps1`, `.vbs`, `.js`, `.wsf`, `.msc`, `.lnk`, `.url`, `.com`, `.scr`, `.hta`, `.reg`, etc.). Arbitrary executables cannot be invoked via file search; use registered application commands or Software Discovery for programs.
+- **Local Paths Only**: Rejects UNC network shares (`\\server\share`), mapped network drives, and device namespaces.
+- **Zero Command History Logging**: Search queries, partial phrases, and unselected file paths are never written to the `commands` audit log table or application logs.
+- **Bounded Open History**: Successful launches record only the normalized destination path and timestamp in `file_open_history` (SQLite schema version 6), bounded to 2,000 entries with automatic LRU pruning.
+
+---
+
 ## Storage, Privacy & Security Invariants
 
 ### Local Storage Layout
@@ -467,7 +581,7 @@ All runtime data is stored locally in `%LOCALAPPDATA%\PetAnimal`:
 ```text
 %LOCALAPPDATA%\PetAnimal\
 ├── database\
-│   └── petanimal.db         # Primary SQLite 3 database (WAL mode, foreign keys, user_version 5)
+│   └── petanimal.db         # Primary SQLite 3 database (WAL mode, foreign keys, user_version 6)
 ├── pets\
 │   └── imported\            # User-imported PNG sprite sheets (<uuid>.png)
 ├── backups\                 # Online SQLite backup snapshots (petanimal-YYYYMMDD-HHMMSS-*.db)
@@ -488,6 +602,7 @@ All runtime data is stored locally in `%LOCALAPPDATA%\PetAnimal`:
 - Unsupported inputs are recorded strictly as `[unsupported command]`. Raw invalid inputs are never stored to prevent leaking mistyped credentials.
 - Free-form browser queries and song titles are logged only as `[web search]` or `[music playback]`.
 - Memory storage and query commands bypass command history entirely.
+- File search queries, partial names, and unselected file paths are never written to command history. Successful file opens are stored solely as normalized paths and timestamps in an isolated, bounded table (`file_open_history`, up to 2,000 items).
 
 ### Safe Database Backup & Restore
 Backups are created using SQLite's online backup API (`db.backup()`). Restoring a database validates:
@@ -504,12 +619,13 @@ Backups are created using SQLite's online backup API (`db.backup()`). Restoring 
 - **No Shell Execution**: The application never invokes `subprocess.Popen(..., shell=True)` or `os.system()`.
 - **Argument List Execution**: Applications must be registered in `WindowsLauncher.SUPPORTED_APPS` or validated in `registered_applications` with an absolute path to a local `.exe` file.
 - **URL Validation**: Web actions only accept valid `https://` URLs without embedded credentials (`user:pass@`) on standard port 443.
+- **File & Folder Launching**: Documents are opened strictly using `os.startfile(path, 'open')` via Windows registered file handlers. Over 30 executable and script file formats (`.exe`, `.bat`, `.cmd`, `.ps1`, `.vbs`, `.js`, `.lnk`, etc.) as well as UNC network paths are strictly prohibited from being opened via file search.
 
 ---
 
 ## Development, Testing & Verification
 
-### Automated Test Suite (774 Tests)
+### Automated Test Suite (866 Tests)
 Pet Animal 2.0 includes a comprehensive test suite covering all modules:
 
 ```powershell
@@ -519,7 +635,7 @@ Pet Animal 2.0 includes a comprehensive test suite covering all modules:
 
 **Expected Result**:
 ```text
-774 passed, 1 warning in ~65s
+866 passed, 1 warning in ~81s
 ```
 
 Run targeted test modules during focused development:
@@ -533,6 +649,9 @@ Run targeted test modules during focused development:
 
 # Smart command interpreter & normalizer
 .venv\Scripts\python.exe -m pytest tests/test_smart_commands.py tests/test_command_interpreter.py -q
+
+# Local file and folder search tests
+.venv\Scripts\python.exe -m pytest tests/test_file_search.py tests/test_interactive_file_results.py -q
 
 # Software discovery service & UI
 .venv\Scripts\python.exe -m pytest tests/test_software_discovery.py tests/test_software_discovery_ui.py -q
@@ -566,11 +685,11 @@ Expected result:
   "success": true,
   "version": "2.0.0",
   "software_discovery": {
-    "candidates": 281,
+    "candidates": 282,
     "launchable": 71
   },
   "personal_memory_engine": {
-    "schema_version": 5,
+    "schema_version": 6,
     "preference_resolution": true,
     "aliases_tags_relationships": true,
     "access_tracking": true,

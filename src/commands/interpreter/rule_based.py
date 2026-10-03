@@ -6,6 +6,7 @@ from .memory_rules import PREFERENCE_TARGETS, memory_store_parts, memory_query_t
 from .patterns import (APPLICATION_ALIASES, WEBSITE_ALIASES, OPEN_VERBS,
                        LOW_CONFIDENCE_ALIASES, SEARCH_PREFIXES, MUSIC_PREFIXES, HELP_PHRASES)
 from ..voice_phrases import NAME_ALIASES
+from .file_rules import file_intent
 
 
 class RuleBasedIntentInterpreter(IntentInterpreter):
@@ -23,6 +24,9 @@ class RuleBasedIntentInterpreter(IntentInterpreter):
         normalized = normalize_input(text)
         if not normalized.valid:
             return InterpretationResult(reason=MatchReason.INVALID_INPUT)
+        local = file_intent(text)
+        if local and (text.strip().startswith('/') or local.action == 'CANCEL'):
+            return InterpretationResult(True, local, reason=MatchReason.SMART_MATCH, confidence=1.0)
         if normalized.negated:
             return InterpretationResult(reason=MatchReason.NEGATED_COMMAND)
         phrase = normalized.text
@@ -39,6 +43,8 @@ class RuleBasedIntentInterpreter(IntentInterpreter):
         forgotten = memory_forget_target(phrase)
         if forgotten:
             return self._match(IntentType.MEMORY_FORGET, forgotten[0], memory_type=forgotten[1])
+        if local:
+            return InterpretationResult(True, local, reason=MatchReason.SMART_MATCH, confidence=1.0)
         for kind, prefixes in ((IntentType.WEB_SEARCH, SEARCH_PREFIXES), (IntentType.PLAY_MEDIA, MUSIC_PREFIXES)):
             for prefix in prefixes:
                 if phrase.startswith(prefix + ' '):
