@@ -1,6 +1,5 @@
 import os
 import sqlite3
-from pathlib import Path
 from unittest.mock import MagicMock
 import pytest
 from PyQt6.QtCore import Qt
@@ -8,7 +7,6 @@ from PyQt6.QtWidgets import QApplication
 from src.core.application import ApplicationCore
 from src.services.file_search import FileSearchService, FileSearchResponse, FileSearchResult
 from src.services.recent_files import WindowsRecentItems, shortcut_target
-from src.commands.interpreter.file_rules import file_intent
 from src.config.settings import settings
 
 

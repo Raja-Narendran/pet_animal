@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from ..voice_phrases import POLITE, has_negation, normalize_language_text, normalize_mixed_voice
 from .patterns import MUSIC_PREFIXES, SEARCH_PREFIXES
-from .memory_rules import memory_store_parts
+from .memory_rules import RAW_PREFIXES as PREFIXES, memory_store_parts
 
 
 @dataclass(frozen=True)
@@ -12,7 +12,6 @@ class NormalizedInput:
     valid: bool = True
 
 
-PREFIXES = tuple(sorted(POLITE | {'can you', 'could you', 'would you', 'will you'}, key=len, reverse=True))
 SUFFIXES = tuple(sorted(POLITE | {'for me'}, key=len, reverse=True))
 
 

@@ -2,7 +2,7 @@
 import math
 from datetime import datetime
 
-from .models import MemoryMatch, MemoryQuery, MemoryScope, MemoryType
+from .models import MemoryMatch, MemoryQuery, MemoryType
 from .service import checked_text, labels, normalize
 
 

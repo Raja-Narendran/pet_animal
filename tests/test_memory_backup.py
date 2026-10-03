@@ -1,6 +1,5 @@
 """Migration and backup boundaries use temporary databases, never user state."""
 import sqlite3
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest

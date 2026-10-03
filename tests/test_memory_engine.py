@@ -4,12 +4,11 @@ import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-import uuid
 
 import pytest
 
-from src.core.memory import (MemoryConflict, MemoryConflictType, MemoryLifetime,
-                             MemoryQuery, MemoryScope, MemoryService, MemorySource, MemoryType)
+from src.core.memory import (MemoryConflict, MemoryConflictType,
+                             MemoryQuery, MemoryScope, MemoryService, MemoryType)
 from src.core.memory import service as module
 
 

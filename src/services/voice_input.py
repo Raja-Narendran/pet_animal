@@ -72,19 +72,6 @@ _model = None
 _model_lock = threading.Lock()
 
 
-def warmup_models_async():
-    """Asynchronously pre-warms the currently active speech model in a daemon thread."""
-    def _warm():
-        try:
-            if settings.VOICE_MULTILINGUAL:
-                get_multilingual_model()
-            else:
-                get_voice_model()
-        except Exception:
-            pass
-    threading.Thread(target=_warm, daemon=True).start()
-
-
 def get_voice_model():
     global _model
     with _model_lock:

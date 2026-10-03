@@ -1,6 +1,4 @@
 """Offline provider, validation and merging tests; no installed app is executed."""
-from dataclasses import replace
-from pathlib import Path
 from unittest.mock import MagicMock
 import os
 import pytest

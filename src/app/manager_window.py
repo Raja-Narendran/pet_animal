@@ -9,9 +9,9 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLa
     QPushButton, QListWidget, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QLineEdit, QComboBox, QDialog, QFormLayout,
     QLayout, QDialogButtonBox, QTextEdit, QPlainTextEdit, QCheckBox, QFileDialog,
-    QMessageBox, QInputDialog, QProgressBar, QSlider, QDoubleSpinBox)
-from ..core.application import DEFAULT_PET, identifier
-from ..core.memory import MemoryType, MemoryScope, MemoryLifetime, MemoryConflict
+    QMessageBox, QProgressBar, QSlider)
+from ..core.application import DEFAULT_PET
+from ..core.memory import MemoryConflict
 from ..config.settings import settings
 from .software_discovery import SoftwareDiscoveryState, SoftwareDiscoveryPanel
 
@@ -249,16 +249,6 @@ class ManagerWindow(QMainWindow):
         layout.addWidget(button('Open memory', lambda: self.navigation.setCurrentRow(1), icon='arrow-right'))
         self.content_layout.addWidget(frame)
 
-    @staticmethod
-    def memory_choice(enum, current=None, all_label=None):
-        choice = QComboBox()
-        if all_label:
-            choice.addItem(all_label, None)
-        for item in enum:
-            choice.addItem(item.value.replace('_', ' ').title(), item.value)
-        choice.setCurrentIndex(max(0, choice.findData(current)))
-        return choice
-
     def page_memory(self):
         self.heading('Personal memory', 'Your profile, preferences and knowledge, saved locally and under your control.', [button('Add memory', self.edit_memory, True, 'brain')])
         filters = QWidget()
@@ -421,12 +411,6 @@ class ManagerWindow(QMainWindow):
                 self.memory_value_revealed = True
                 self.memory_reveal_button.setText('Hide value')
         self.guard(reveal)
-
-    def new_category(self):
-        name, ok = QInputDialog.getText(self, 'New category', 'Category name')
-        if ok:
-            sensitive = QMessageBox.question(self, 'Sensitive category', 'Encrypt values in this category with Windows user encryption?', QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
-            self.guard(lambda: self.core.add_category(name, sensitive))
 
     def _existing_default_titles(self):
         records = self.core.memories()

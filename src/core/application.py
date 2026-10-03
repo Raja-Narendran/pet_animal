@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from . import secrets
 from .memory import MemoryService
+from .memory.service import normalize as normalize_memory
 from .shortcuts import APPLICATION_NAMES, ApplicationShortcut, match_shortcuts
 from .file_search import FileSearchSession
 from ..services.file_search import FileSearchService, FileSearchResponse, local_path
@@ -38,7 +39,7 @@ def now():
 
 
 def normalize(text):
-    return ' '.join(text.casefold().split())
+    return normalize_memory(text)
 
 
 def text(value, label, limit=1000):
