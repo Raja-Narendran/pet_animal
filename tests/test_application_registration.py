@@ -1,6 +1,5 @@
 """Approval, persistence, command routing, trust revalidation and restore regressions."""
 from dataclasses import replace
-import json
 import sqlite3
 from unittest.mock import MagicMock
 import pytest
@@ -186,7 +185,7 @@ def test_migration_from_version_one_preserves_existing_records(tmp_path):
         db.execute('INSERT INTO applications VALUES (?,?,?)', ('legacy', 'Legacy unused metadata', 'never launched'))
     core = ApplicationCore(root)
     try:
-        assert core.db.execute('PRAGMA user_version').fetchone()[0] == 5
+        assert core.db.execute('PRAGMA user_version').fetchone()[0] == 6
         assert core.rows('SELECT * FROM applications')[0]['name'] == 'Legacy unused metadata'
         assert not core.list_registered_applications()
     finally:
@@ -215,7 +214,7 @@ def test_legacy_backup_is_migrated_in_memory_without_changing_source(core):
     core.confirm_name('Changed')
     core.restore(backup)
     assert core.get_memory_by_key('user.name')['memory_value'] == 'Legacy user'
-    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 5
+    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 6
     assert backup.read_bytes() == before
 
 

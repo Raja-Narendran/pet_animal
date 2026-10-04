@@ -11,7 +11,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 from . import secrets
 from .memory import MemoryService
+from .memory.service import normalize as normalize_memory
 from .shortcuts import APPLICATION_NAMES, ApplicationShortcut, match_shortcuts
+from .file_search import FileSearchSession
+from ..services.file_search import FileSearchService, FileSearchResponse, local_path
 from ..config.settings import settings
 from ..services.windows_launcher import WindowsLauncher
 from ..services.software_discovery import DiscoveredApplication, RegisteredApplication, ApplicationValidator, ValidationStatus, DiscoverySource
@@ -20,6 +23,7 @@ from ..commands.interpreter.patterns import APPLICATION_ALIASES, WEBSITE_ALIASES
 from ..commands.interpreter import (AUTO_EXECUTE_THRESHOLD, CommandIntent, InterpretationResult, IntentType, MatchReason,
                                     RuleBasedIntentInterpreter, IntentResolver, MemoryResolver)
 from ..commands.interpreter.normalizer import normalize_input
+from ..commands.interpreter.file_rules import file_intent, valid_query
 from ..commands.voice_phrases import normalize_mixed_voice
 from ..utils.logger import get_logger
 
@@ -35,7 +39,7 @@ def now():
 
 
 def normalize(text):
-    return ' '.join(text.casefold().split())
+    return normalize_memory(text)
 
 
 def text(value, label, limit=1000):
@@ -50,7 +54,7 @@ DEFAULT_APP = dict(launch_pet=True, start_minimized=False, tray=True, notificati
 
 
 class ApplicationCore:
-    def __init__(self, data_dir, launcher=None):
+    def __init__(self, data_dir, launcher=None, file_search=None):
         self.root = Path(data_dir)
         for folder in ('database', 'pets/imported', 'backups', 'logs'):
             (self.root / folder).mkdir(parents=True, exist_ok=True)
@@ -66,7 +70,7 @@ class ApplicationCore:
         self.listeners = []
         self._memory_confirmations = {}
         version = self.db.execute('PRAGMA user_version').fetchone()[0]
-        if version > 5:
+        if version > 6:
             raise ValueError('This database requires a newer Pet Animal version.')
         if version == 0:
             migration = settings.BASE_DIR / 'src/database/migrations/001_initial.sql'
@@ -97,6 +101,9 @@ class ApplicationCore:
                 self.db.rollback()
                 self.db.close()
                 raise
+        if version < 6:
+            migration = settings.BASE_DIR / "src/database/migrations/006_file_open_history.sql"
+            self.db.executescript("BEGIN;\n" + migration.read_text(encoding="utf-8-sig") + "\nCOMMIT;")
         self._seed()
         self.memory_service = MemoryService(self.db, changed=self.changed)
         self.memory_retriever = self.memory_service.retriever
@@ -104,8 +111,11 @@ class ApplicationCore:
         if isinstance(self.launcher, WindowsLauncher):
             self.launcher.registered_application_lookup = self.get_registered_application
         self._refresh_application_aliases()
+        self.file_session = FileSearchSession(record_open=self._record_file_open)
+        self.file_search = file_search if file_search is not None else self.create_file_search_service()
 
     def close(self):
+        self.file_session.clear()
         self.memory_service.close_session()
         self.db.close()
 
@@ -223,6 +233,7 @@ class ApplicationCore:
 
     def execute_application_shortcut(self, target):
         """Resolve a live target ID; a displayed suggestion grants no lasting authority."""
+        self.file_session.clear()
         entry = next((item for item in self.application_shortcuts() if item.target == target), None)
         if entry is None:
             interpretation = InterpretationResult(reason=MatchReason.UNAVAILABLE_COMMAND)
@@ -404,10 +415,10 @@ class ApplicationCore:
         normalized = [normalize(text(p, 'Phrase', 200)) for p in phrases]
         if len(set(normalized)) != len(normalized):
             raise ValueError('Duplicate phrases in this command.')
-        if any(p == 'help' or p.startswith('remember my name as ') or
+        if any(p.startswith('/') or p == 'help' or p.startswith('remember my name as ') or
                ((intent := self.interpreter.interpret(p).intent) is not None and
-                intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.MEMORY_FORGET)) for p in normalized):
-            raise ValueError('This phrase is reserved for memory or help.')
+                intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.MEMORY_FORGET, IntentType.FILE_SEARCH)) for p in normalized):
+            raise ValueError('This phrase is reserved for memory, help or local file search.')
         for phrase in normalized:
             if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=? AND command_id<>?', (phrase, command_id)):
                 raise ValueError(f'Phrase already registered: {phrase}')
@@ -541,6 +552,9 @@ class ApplicationCore:
         normalized_input = normalize_input(phrase)
         if not normalized_input.valid:
             return InterpretationResult(reason=MatchReason.INVALID_INPUT)
+        local = file_intent(phrase)
+        if local and (phrase.strip().startswith('/') or local.action == 'CANCEL'):
+            return InterpretationResult(True, local, reason=MatchReason.SMART_MATCH, confidence=1.0)
         # Mandatory safety veto precedes matching, even for an exact custom phrase.
         if normalized_input.negated:
             return InterpretationResult(reason=MatchReason.NEGATED_COMMAND)
@@ -564,7 +578,7 @@ class ApplicationCore:
             return InterpretationResult(True, intent, reason=MatchReason.EXACT_PHRASE, confidence=1.0)
         result = self.interpreter.interpret(phrase)
         # Explicit memory grammar stays reserved even in a pre-upgrade registry.
-        if result.matched and result.intent and result.intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.MEMORY_FORGET):
+        if result.matched and result.intent and result.intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.MEMORY_FORGET, IntentType.FILE_SEARCH):
             if not AUTO_EXECUTE_THRESHOLD <= result.intent.confidence <= 1.0:
                 return InterpretationResult(False, result.intent, reason=MatchReason.LOW_CONFIDENCE, confidence=result.intent.confidence)
             return result
@@ -604,11 +618,30 @@ class ApplicationCore:
             return 'Use a command of at most 500 characters without control characters.'
         return 'Unsupported command. Type help to see registered phrases.'
 
-    def execute(self, phrase, defer_browser=False):
+    def execute(self, phrase, defer_browser=False, defer_file_search=False):
         interpretation = self.interpret(phrase)
         if interpretation.reason == MatchReason.INVALID_INPUT:
+            self.file_session.clear()
             return dict(success=False, message=self.interpretation_message(interpretation), pet_state='error')
         intent = interpretation.intent if interpretation.matched else None
+        if intent and intent.intent == IntentType.FILE_SEARCH:
+            if intent.action in ('FIND', 'FIND_AND_OPEN'):
+                if not valid_query(intent.query):
+                    self.file_session.clear()
+                    return FileSearchSession.reply(False, 'Type / followed by a file name, or a name followed by folder. Use names without path separators or wildcards.')
+                token = self.file_session.begin()
+                if defer_file_search:
+                    return dict(success=True, message='Searching local files…', pet_state='working',
+                                file_search=True, file_search_intent=intent, file_search_token=token)
+                try:
+                    response = self.file_search.search(intent)
+                    if isinstance(self.file_search, FileSearchService):
+                        response = self.file_search.merge_activity(response, intent, self.file_open_records())
+                except Exception:
+                    response = FileSearchResponse(partial=True, notice='File search could not finish. Review Settings → Local file search.')
+                return self.finish_file_search(token, intent, response)
+            return self.file_session.present(self.file_session.followup(intent, self.launcher))
+        self.file_session.clear()
         if intent and intent.intent == IntentType.MEMORY_QUERY:
             try:
                 is_pref = bool(intent.target and intent.target.startswith('preferred.'))
@@ -629,8 +662,74 @@ class ApplicationCore:
                 return dict(success=False, message=str(error), pet_state='error')
         if intent and intent.intent == IntentType.SHOW_HELP:
             names = [c['phrases'][0] for c in self.commands() if c['enabled']]
-            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nBrowser: search <query>; play <song> on youtube\nMemory: remember my name as <name>; save my preferred browser as <app>; what is my editor; forget my preferred browser', pet_state='idle')
+            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nFiles: /<name>; find <name>; find <name> folder; open it; yes; show results; open <number>\nBrowser: search <query>; play <song> on youtube\nMemory: remember my name as <name>; save my preferred browser as <app>; what is my editor; forget my preferred browser', pet_state='idle')
         return self._execute_registered_command(interpretation, phrase, defer_browser)
+
+    def finish_file_search(self, token, intent, response):
+        """Apply a worker response only to the still-current in-memory conversation."""
+        if self.file_session.active() and token == self.file_session.token:
+            # Pet history candidates were validated in the worker; no filesystem I/O here.
+            items = sorted(response.results, key=FileSearchSession.opened_key)
+            response = replace(response, results=tuple(items[:200]), partial=response.partial or len(items) > 200)
+        return self.file_session.finish(token, response, intent, self.launcher)
+
+    def file_open_records(self):
+        return {row[0]: row[1] for row in self.db.execute("SELECT path, opened FROM file_open_history ORDER BY opened DESC LIMIT 2000")}
+
+    def _record_file_open(self, item, stamp):
+        with self.db:
+            self.db.execute('INSERT INTO file_open_history VALUES (?,?) ON CONFLICT(path) DO UPDATE SET opened=excluded.opened', (item.path, stamp))
+            self.db.execute('DELETE FROM file_open_history WHERE path NOT IN (SELECT path FROM file_open_history ORDER BY opened DESC LIMIT 2000)')
+
+    def open_file_result(self, token, result_id):
+        return self.file_session.open_identified(token, result_id, self.launcher)
+
+    def sort_file_results(self, token, order):
+        return self.file_session.sort_results(token, order)
+
+
+    def file_search_settings(self):
+        config = self.get_setting('file_search', dict(roots=[], everything_executable=''))
+        self.validate_file_search_settings(config)
+        return config
+
+    @staticmethod
+    def validate_file_search_settings(config):
+        from ..services.file_search import is_local_path
+        if not isinstance(config, dict) or set(config) != {'roots', 'everything_executable'}:
+            raise ValueError('Invalid local file search settings.')
+        roots, executable = config['roots'], config['everything_executable']
+        if not isinstance(roots, list) or len(roots) > 32 or any(not isinstance(root, str) or not is_local_path(root) for root in roots):
+            raise ValueError('Choose up to 32 absolute folders on local disks.')
+        if not isinstance(executable, str) or (executable and (not is_local_path(executable) or Path(executable).name.casefold() != 'es.exe')):
+            raise ValueError('Choose the Everything command-line client es.exe on a local disk.')
+
+    def create_file_search_service(self):
+        try:
+            config = self.file_search_settings()
+        except ValueError:
+            # Invalid imported configuration must never expand scope or execute a path.
+            return FileSearchService(roots=[])
+        return FileSearchService(roots=config['roots'] or None,
+            everything_executable=config['everything_executable'] or None,
+            integration_dir=self.root / 'integrations/everything')
+
+    def save_file_search_settings(self, roots, everything_executable=''):
+        config = dict(roots=list(roots), everything_executable=everything_executable.strip())
+        self.validate_file_search_settings(config)
+        config['roots'] = [str(local_path(root)) for root in config['roots']]
+        if any(not Path(root).is_dir() for root in config['roots']):
+            raise ValueError('Choose existing search folders.')
+        if config['everything_executable']:
+            config['everything_executable'] = str(local_path(config['everything_executable']))
+            if not Path(config['everything_executable']).is_file():
+                raise ValueError('Choose the es.exe file.')
+        with self.db:
+            self.db.execute('INSERT INTO app_settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                            ('file_search', json.dumps(config)))
+        self.file_session.clear()
+        self.file_search = self.create_file_search_service()
+        self.changed()
 
     def _execute_registered_command(self, interpretation, phrase, defer_browser=False, expected_application=None):
         """Shared live validation, OS dispatch and private history for resolved commands."""
@@ -838,7 +937,8 @@ class ApplicationCore:
 
     def export_configuration(self):
         return dict(version=1, settings=self.app_settings(), commands=self.commands(), profiles=self.profiles(),
-                    registered_applications=[asdict(app) for app in self.list_registered_applications()])
+                    registered_applications=[asdict(app) for app in self.list_registered_applications()],
+                    file_search=self.file_search_settings())
 
     def import_configuration(self, payload):
         if not isinstance(payload, dict) or payload.get('version') != 1:
@@ -847,6 +947,8 @@ class ApplicationCore:
         if 'voice_mode' not in settings_payload:
             settings_payload['voice_mode'] = 'english'
         self.validate_settings(settings_payload)
+        search_config = payload.get('file_search', dict(roots=[], everything_executable=''))
+        self.validate_file_search_settings(search_config)
         commands, profiles = payload.get('commands'), payload.get('profiles')
         if not isinstance(commands, list) or not isinstance(profiles, list) or len(commands) > 500 or not 1 <= len(profiles) <= 100:
             raise ValueError('Invalid configuration records.')
@@ -878,6 +980,9 @@ class ApplicationCore:
                 self._write_profile(identifier(), profile['name'], profile['selected_asset_id'], profile['config'], bool(profile['is_active']))
             for key, value in payload['settings'].items():
                 self.db.execute('INSERT INTO app_settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, json.dumps(value)))
+            self.db.execute('INSERT INTO app_settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ('file_search', json.dumps(search_config)))
+        self.file_session.clear()
+        self.file_search = self.create_file_search_service()
         self.changed()
 
     def backup(self, destination=None):
@@ -906,7 +1011,7 @@ class ApplicationCore:
             candidate.execute('PRAGMA foreign_keys=ON')
             candidate.execute('PRAGMA trusted_schema=OFF')
             version = candidate.execute('PRAGMA user_version').fetchone()[0]
-            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or version not in (1, 2, 3, 4, 5) or candidate.execute('PRAGMA foreign_key_check').fetchall():
+            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or version not in (1, 2, 3, 4, 5, 6) or candidate.execute('PRAGMA foreign_key_check').fetchall():
                 raise ValueError('Invalid or incompatible backup.')
             if version == 1:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/002_registered_applications.sql').read_text(encoding='utf-8-sig'))
@@ -916,6 +1021,12 @@ class ApplicationCore:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/004_simplify_memory.sql').read_text(encoding='utf-8-sig'))
             if version < 5:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/005_remove_activity_patterns.sql').read_text(encoding='utf-8-sig'))
+            if version < 6:
+                candidate.executescript((settings.BASE_DIR / 'src/database/migrations/006_file_open_history.sql').read_text(encoding='utf-8-sig'))
+            for row in candidate.execute('SELECT path, opened FROM file_open_history'):
+                from ..services.file_search import is_local_path
+                if not is_local_path(row[0]) or not isinstance(row[1], (float, int)) or not 0 < row[1] < float('inf'):
+                    raise ValueError('Invalid file open history.')
             # Require the application's exact schema: no injected triggers/views or altered constraints.
             current_schema = {(r[0], r[1], r[2], r[3]) for r in self.db.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
             backup_schema = {(r[0], r[1], r[2], r[3]) for r in candidate.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'")}
@@ -951,6 +1062,8 @@ class ApplicationCore:
             for row in candidate.execute('SELECT key,value FROM app_settings'):
                 if row[0] in imported_settings:
                     imported_settings[row[0]] = json.loads(row[1])
+                elif row[0] == 'file_search':
+                    self.validate_file_search_settings(json.loads(row[1]))
             self.validate_settings(imported_settings)
             for row in candidate.execute('SELECT m.memory_value FROM memories m JOIN memory_categories c ON c.id=m.category_id WHERE c.sensitive=1'):
                 secrets.decrypt(row[0])
@@ -960,6 +1073,8 @@ class ApplicationCore:
             candidate.commit()
             candidate.backup(self.db)
             self.memory_service.cleanup_session(startup=True)
+            self.file_session.clear()
+            self.file_search = self.create_file_search_service()
             self._memory_confirmations.clear()
         finally:
             candidate.close()

@@ -1,6 +1,5 @@
 """Migration and backup boundaries use temporary databases, never user state."""
 import sqlite3
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -31,7 +30,7 @@ def test_v2_migration_preserves_ids_timestamps_and_exact_ciphertext(tmp_path):
     path, ciphertext = legacy_database(tmp_path)
     core = ApplicationCore(tmp_path, MagicMock())
     try:
-        assert core.db.execute('PRAGMA user_version').fetchone()[0] == 5
+        assert core.db.execute('PRAGMA user_version').fetchone()[0] == 6
         name = core.get_memory('old-name')
         assert (name['memory_key'], name['memory_value'], name['memory_type']) == ('user.name', 'Naren', 'PROFILE')
         assert name['source'] == 'MIGRATION'

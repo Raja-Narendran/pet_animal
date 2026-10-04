@@ -1,6 +1,5 @@
 """Main application entry point for Pet Animal Desktop Companion."""
 import sys
-import ctypes
 import os
 import json
 import tempfile
@@ -19,23 +18,8 @@ from src.core.application import ApplicationCore
 from src.config.settings import _get_data_dir
 
 
-def enable_windows_dpi_awareness():
-    """Enables Windows Per-Monitor High-DPI awareness for crisp rendering."""
-    if sys.platform == "win32":
-        try:
-            # PROCESS_PER_MONITOR_DPI_AWARE = 2
-            ctypes.windll.shcore.SetProcessDpiAwareness(2)
-        except Exception:
-            try:
-                ctypes.windll.user32.SetProcessDPIAware()
-            except Exception:
-                pass
-
-
 def main():
     """Starts the Pet Animal desktop companion application."""
-    enable_windows_dpi_awareness()
-
     logger = setup_logger("main")
     logger.info(f"Starting {settings.APP_NAME} v{settings.VERSION}...")
 
@@ -102,7 +86,7 @@ def run_self_test(app):
             result['software_discovery'] = dict(candidates=len(detected), launchable=sum(item.launchable for item in detected))
             core.confirm_name('Verification user')
             assert core.execute('what is my name')['message'] == 'Verification user'
-            assert core.db.execute('PRAGMA user_version').fetchone()[0] == 5
+            assert core.db.execute('PRAGMA user_version').fetchone()[0] == 6
             service = core.memory_service
             category = next(c['id'] for c in core.categories() if c['name'] == 'Important Notes')
             editor = core.execute('remember my editor is VS Code')
@@ -130,7 +114,7 @@ def run_self_test(app):
             assert core.get_memory(session_memory) is None
             assert service.get_relationships(project)
             assert core.get_memory(private, reveal=True)['memory_value'] == 'DPAPI verification value'
-            result['personal_memory_engine'] = dict(schema_version=5, preference_resolution=True,
+            result['personal_memory_engine'] = dict(schema_version=6, preference_resolution=True,
                 aliases_tags_relationships=True, access_tracking=True, dpapi_safe_export=True,
                 session_restore_cleanup=True)
             for index in range(6):

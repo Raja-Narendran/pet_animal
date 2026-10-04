@@ -1,159 +1,213 @@
 # Structure and cleanup audit
 
-Audited on 2026-10-01 against the local checkout. Git was clean before cleanup.
+Audited on 2026-10-03 against the current local checkout. Git was clean before
+cleanup. This report replaces the 2026-10-01 audit, whose module/test counts and
+packaging findings no longer describe the current codebase.
 
 ## File tree
 
-Package directories retain their `__init__.py` files and intentional public exports.
-Generated caches, model contents, screenshots, and environment internals are summarized.
+64 Python files under src, 28 test modules, six release Python files, and six SQL
+migrations. Package markers and public exports are retained. Model directories,
+generated artifacts, and historical verification records are summarized below.
 
 ```text
 K:/pet_animal/
 |-- src/
-|   |-- main.py                         GUI entry point and isolated self-test
+|   |-- main.py                         GUI startup and isolated --self-test
 |   |-- app/
-|   |   |-- controller.py               Window lifecycle, core listeners, BrowserWorker
-|   |   |-- manager_window.py           Six Manager pages and local widget builders
-|   |   `-- pet_window.py               Floating window; standalone compatibility path
+|   |   |-- controller.py               Windows, lifecycle, BrowserWorker, FileSearchWorker
+|   |   |-- manager_window.py           Six pages, dialogs and widget builders
+|   |   |-- pet_window.py               Floating pet and standalone compatibility route
+|   |   `-- software_discovery.py       Discovery worker, shared state and Manager panel
 |   |-- components/
-|   |   |-- pet.py                      Sprite animation and dragging
-|   |   |-- command_box.py              Typed/voice input and input-state transitions
-|   |   |-- response.py                 Response bubble and expiry
+|   |   |-- pet.py                      Sprite display and dragging
+|   |   |-- command_box.py              Typed/voice input and waveform integration
+|   |   |-- response.py                 Text bubbles and interactive file results
 |   |   |-- voice_button.py             Microphone control
-|   |   `-- audio_waveform.py           Live speech level display
+|   |   `-- audio_waveform.py           Speech level display
 |   |-- commands/
-|   |   |-- model.py                    Command, CommandResult, ActionType
-|   |   |-- parser.py                   Standalone rule-based parser
-|   |   |-- executor.py                 Standalone command executor
-|   |   |-- registry.py                 Action handler registry
-|   |   |-- voice_phrases.py            Tamil/English voice phrase routing
-|   |   `-- actions/                    base, help, open_application, open_url,
-|   |                                  search_web, play_music
-|   |-- config/settings.py             Paths, defaults, launcher and voice settings
+|   |   |-- model.py, parser.py          Compatibility command model and parser
+|   |   |-- executor.py, registry.py    Compatibility execution and handler dispatch
+|   |   |-- voice_phrases.py            Tamil/English/Tanglish routing and negation
+|   |   |-- actions/                    base, help, open_application, open_url,
+|   |   |                              search_web, play_music
+|   |   `-- interpreter/               base, models, normalizer, patterns, rule_based,
+|   |                                  resolver, memory_rules, memory_resolver, file_rules
+|   |-- config/settings.py             Paths, defaults, speech and resource configuration
 |   |-- core/
-|   |   |-- application.py              SQLite, memory, commands, profiles, backups
-|   |   `-- secrets.py                  Windows DPAPI
+|   |   |-- application.py             SQLite, commands, profiles, settings and backups
+|   |   |-- secrets.py                  Windows DPAPI
+|   |   |-- shortcuts.py                Application autocomplete models and matching
+|   |   |-- file_search.py              Search sessions and result authorization
+|   |   `-- memory/                    models, service, retrieval
 |   |-- database/migrations/
-|   |   `-- 001_initial.sql             Runtime schema resource
+|   |   |-- 001_initial.sql
+|   |   |-- 002_registered_applications.sql
+|   |   |-- 003_personal_memory_engine.sql
+|   |   |-- 004_simplify_memory.sql
+|   |   |-- 005_remove_activity_patterns.sql
+|   |   `-- 006_file_open_history.sql
 |   |-- services/
-|   |   |-- windows_launcher.py         Allowlisted OS dispatch
-|   |   |-- voice_input.py              Local engines, microphone, VoiceInputWorker
-|   |   |-- youtube_automation.py       Playback resolution and optional Selenium mode
-|   |   `-- youtube_worker.py           Standalone PetWindow background playback
-|   `-- utils/
-|       |-- logger.py                  Logging setup and logger access
-|       `-- sprite.py                  Sprite slicing, scaling and cache
+|   |   |-- windows_launcher.py         Built-in/approved application and URL dispatch
+|   |   |-- voice_input.py              Local speech models, capture and Qt workers
+|   |   |-- youtube_automation.py       Playback resolution and optional Selenium route
+|   |   |-- youtube_worker.py           Standalone PetWindow playback worker
+|   |   |-- file_search.py              Everything/local search backends and path checks
+|   |   |-- recent_files.py             Windows recent-item shortcut resolution
+|   |   `-- software_discovery/         models, validator, service, registry, start_menu
+|   `-- utils/                         logger, sprite
 |-- release/
-|   |-- build.ps1                      Model preparation, tests, app and installer build
-|   |-- installer.py                   Installation and payload-verification entry point
-|   |-- prepare_voice_model.py         Vosk preparation and endpoint configuration
-|   |-- prepare_multilingual_voice.py  Whisper preparation and checksum validation
-|   |-- runtime_diagnostics.py         Intended frozen-runtime diagnostic hook
-|   `-- hooks/hook-webrtcvad.py         Intended PyInstaller hook for maintained wheels
+|   |-- build.ps1                      Model prep, tests, PyInstaller and installer build
+|   |-- installer.py                   Install/uninstall UI and payload verification
+|   |-- prepare_voice_model.py         Vosk setup and endpoint configuration
+|   |-- prepare_multilingual_voice.py  Multilingual model setup/checksums
+|   |-- runtime_diagnostics.py         Frozen boot diagnostics
+|   `-- hooks/hook-webrtcvad.py         PyInstaller speech-wheel hook
 |-- assets/
 |   |-- ui/                            arrow-right.svg, brain.svg, brain-white.svg, zap.svg
-|   `-- speech/                        License and locally prepared models (models ignored)
+|   `-- speech/                        WHISPER-LICENSE.txt and prepared local models
 |-- petimage/                          Seven built-in Husky animation sheets
-|-- tests/                             14 regression test modules, package marker
+|-- tests/                             28 regression modules and package marker
 |   `-- fixtures/                      Three WAV samples and provenance README
-|-- docs/                              Verification reports, screenshots, this audit
-|-- requirements.txt                   Direct and transitive dependency pins
-|-- pet-animal.spec                    Tracked PyInstaller application specification
-|-- README.md                          Usage, development and release documentation
-|-- .gitignore                         Environment, generated files and model exclusions
+|-- docs/                              This audit, feature/release reports, screenshots
+|-- requirements.txt                   Runtime/test/build dependencies and their pins
+|-- pet-animal.spec                    Application packaging specification
+|-- README.md                          Usage and development documentation
+|-- .gitignore                         Generated-file/model exclusions
 |-- .agents/, AGENTS.md, AGENT.md,
-|   SKILL.md                           Local agent/runbook material; preserved
-`-- .venv/, build/, .pytest_cache/      Local environment and generated artifacts; preserved
+|   SKILL.md                           Local agent/runbook material where present
+`-- .venv/, build/, dist/,
+    .pytest_cache/                     Environment and generated outputs where present
 ```
 
-## Entry points and reachability
+## Entry points and dependency routes
 
-| Entry point | Route and purpose |
+| Entry point | Route |
 | --- | --- |
 | `python src/main.py` | `main()` creates QApplication, ApplicationCore and ApplicationController; controller owns ManagerWindow and PetWindow. |
-| `python src/main.py --self-test <report>` | `run_self_test()` exercises an isolated database, window lifecycle and offline speech engines. |
-| `python -m pytest -q` | Collects all 14 test modules; Qt, legacy parser/executor, core, launcher, installer, voice and playback paths are covered. |
-| `release/build.ps1` | Runs both model preparation scripts, pytest, PyInstaller using pet-animal.spec, archive creation and installer packaging. |
-| `python release/prepare_voice_model.py` | Calls `prepare()` to validate/extract the Vosk model and configure trailing silence. |
-| `python release/prepare_multilingual_voice.py` | Calls `prepare()` to obtain checksum-validated multilingual model files. |
-| `python release/installer.py` | `main()` supports installer UI, payload verification and uninstall behavior. |
-| `PetWindow(parser=..., executor=...)` | Compatibility construction used by component tests; uses the command registry and lazily imports YouTubePlayWorker for playback. |
+| `python src/main.py --self-test <report>` | `run_self_test()` uses an isolated database to check migrations, DPAPI, memory, restore, pages, speech engines, smart commands, discovery and shutdown. |
+| `python -m pytest -q` | 28 test modules exercise core, memory, interpreters, compatibility commands, Qt components, discovery, shortcuts, file search, speech, playback and installer behavior. |
+| `release/build.ps1` | Runs both model preparation scripts and tests, packages pet-animal.spec, creates the payload archive and builds release/installer.py. |
+| `python release/prepare_voice_model.py` | Explicit build/setup-time Vosk model preparation. |
+| `python release/prepare_multilingual_voice.py` | Explicit build/setup-time checksum-validated multilingual model preparation. |
+| `python release/installer.py` | Installer `main()` also handles payload verification and uninstall. |
+| `PetWindow(parser=..., executor=...)` | Compatibility/test construction uses parser/executor/registry/actions and lazily loads YouTubePlayWorker. |
+| PyInstaller hooks | pet-animal.spec references release/hooks and release/runtime_diagnostics.py directly; import-graph reachability alone cannot identify these consumers. |
 
-Manager page renderers are reached through dynamic navigation dispatch. Qt event
-handlers and signal callbacks must not be classified as dead merely because they
-have no ordinary call site. `__init__.py` imports are public package exports.
+Primary runtime flow:
+
+```text
+main -> controller -> ManagerWindow / PetWindow -> components
+                  -> BrowserWorker / FileSearchWorker
+core -> interpreter -> memory rules / preference resolver / intent resolver
+     -> memory service -> retrieval / DPAPI / SQLite
+     -> shortcuts / file-search sessions -> file-search service -> recent files
+     -> software-discovery models/validation -> WindowsLauncher
+Manager -> discovery state/worker/panel -> discovery service -> providers
+command box -> voice input -> local Vosk/Whisper + sounddevice + endpoint detector
+WindowsLauncher -> approved argument-list launches / URLs / playback service
+```
+
+AST import traversal used src.main, all tests and release scripts as roots and
+resolved relative imports, package exports and imports inside functions. Every
+implementation module is reachable. The only unvisited source file was the empty
+src/database/__init__.py marker; migrations are loaded as filesystem resources,
+so this package and all six SQL files remain necessary. Static checks were
+supplemented with searches for signal callbacks, navigation dispatch, resource
+paths, documentation references and packaging hooks.
 
 ## Cleanup applied
 
-- Removed 21 unused imported names across six application modules and seven test
-  modules. AST name-use inspection was followed by reference review; exports stayed.
-- Consolidated identical typed-command, voice-command and browser-completion result
-  display into `ApplicationController._show_result()`. Bubble text, animation duration,
-  pet anchoring and failed-voice input retention keep their existing behavior.
-- Removed 12 unreferenced SVGs: arrow-memory, brain-quick, chevron-right, clock,
-  command-activity, command-quick, command, database, plus, shield-check,
-  shield-memory and sparkles. Checked literal and dynamically constructed icon paths.
-  `brain-white.svg` stays because primary buttons select it dynamically.
-  The installer test's plus.svg is generated inside a fixture ZIP; it does not read
-  the removed repository icon.
-- Removed `all_files.txt`, a stale duplicate dump of source files with no consumers.
+- Removed 16 unused imported names from Manager, memory retrieval and five test
+  modules. QInputDialog became unused after removing its dead callback.
+- Removed ManagerWindow.memory_choice: the enum combo builder has no callers after
+  memory UI simplification. No signal or dynamic navigation route references it.
+- Removed ManagerWindow.new_category: no UI control, test, or documented route calls
+  this orphan callback. ApplicationCore.add_category remains available and tested.
+- Removed warmup_models_async: no runtime, test, export or documentation consumer.
+  Active speech startup still loads its model before opening the microphone.
+  Thread locks and the actual model loaders remain intact.
+- Shared identical casefold/whitespace normalization with memory.service.normalize.
+  application.normalize stays as a forwarding wrapper, preserving its public
+  name and normalize(text=...) keyword signature.
+- Reused memory_rules.RAW_PREFIXES as normalizer.PREFIXES rather than constructing
+  the identical polite-request prefix tuple twice. Both existing names remain.
 
-No Python modules, migrations, sprites, speech fixtures/models, licenses, agent
-instructions or historical verification artifacts were deleted.
+No complete files, assets, migrations, fixtures, models, licenses, package markers,
+public memory APIs, or verification archives were deleted. No packages were
+uninstalled. No user database was changed by cleanup; regression fixtures and the
+self-test use isolated databases.
 
 ## Dependency audit
 
-No listed dependency was proven unnecessary. No packages were uninstalled and the
-manifest was preserved. Several entries are indirect requirements, not dead packages:
+All listed packages have runtime, testing, packaging or transitive consumers.
+Requirements therefore remain unchanged. Removing a package solely because its
+name never appears in an import would break dependency pins or optional paths.
+Installed distribution metadata was inspected to confirm ownership.
 
 | Dependency group | Consumer |
 | --- | --- |
-| Pillow, PyQt6 | Core PNG validation and native UI/sprite rendering. |
+| pillow, PyQt6 | Core PNG checks and GUI/sprite rendering. |
 | PyQt6-Qt6, PyQt6_sip | Required by PyQt6. |
-| SpeechRecognition, vosk, sounddevice, faster-whisper, webrtcvad-wheels | Active microphone input, English and multilingual recognition, endpoint detection. |
-| selenium | Optional YouTube service mode with explicit regression coverage. |
-| pytest, pytest-qt | Test collection and Qt fixtures. |
-| colorama, iniconfig, packaging, pluggy, Pygments | pytest dependencies; packaging is also required by PyInstaller. |
-| pyinstaller | Release builder. |
-| altgraph, pefile, pyinstaller-hooks-contrib, pywin32-ctypes, setuptools | PyInstaller dependencies on Windows. |
+| SpeechRecognition, vosk, sounddevice, faster-whisper, webrtcvad-wheels | Active local capture/recognition/endpoint detection. |
+| selenium | Optional playback service route and regression coverage. |
+| pytest, pytest-qt | Test runner, Qt fixtures. |
+| colorama, iniconfig, packaging, pluggy, Pygments | pytest dependencies; packaging is also used by PyInstaller. |
+| pyinstaller | Release build command. |
+| altgraph, pefile, pyinstaller-hooks-contrib, pywin32-ctypes, setuptools | PyInstaller requirements on Windows. |
 
-Dependency ownership was checked against installed distribution metadata.
-`pip check` reports no broken requirements. A fresh dependency installation or
-complete reproducibility audit was not performed.
+numpy is also directly imported by speech code/tests and supplied transitively in
+the installed environment; this audit does not establish fresh-install lockfile
+completeness. pip check verifies installed requirement consistency, not a clean
+installation. Build/model preparation scripts may download assets; no network
+preparation was run for this audit.
 
 ## Structural findings and preserved boundaries
 
-1. The guide/runbook describes voice and browser automation as disabled and 175
-   tests. The checkout has active voice/playback paths and 232 tests. These features
-   were preserved; removing them as legacy code would break existing behavior.
-2. The core/controller/Manager separation remains intact. Core source does not import
-   Qt. The standalone parser/executor and PetWindow callbacks overlap the controller
-   flow but are live compatibility APIs, not orphan components.
-3. Logger access/setup and the two model-preparation helpers serve distinct roles;
-   merging them solely because they look similar would change contracts.
-4. `Command.to_dict/from_dict` and `PetWindow.hide_to_tray` have no in-repository
-   callers, but remain public compatibility methods. Absence of callers is not enough
-   evidence to remove these methods safely.
-5. The current `pet-animal.spec` includes only petimage in `datas`; migrations, UI
-   icons and speech models are absent. `hookspath` and `runtime_hooks` are empty,
-   leaving the webrtcvad and diagnostic hooks unwired. These files are necessary
-   release support, not deletion candidates. This is a pre-existing packaging gap;
-   repair and a fresh Windows build require separate validation. README release
-   claims should not be treated as proof of the current spec's completeness.
-6. Historical packaged reports and hashes describe earlier binaries. This cleanup
-   did not rebuild or revalidate the installer, so those reports were preserved as
-   historical evidence and were not overwritten.
+1. The local guide/runbook still describes disabled voice/browser automation and
+   175 tests. The current source has active speech/playback paths and 866 tests.
+   These features were preserved. This cleanup does not resolve the historical
+   offline-policy/documentation mismatch or change runtime capabilities.
+2. src/core has no direct Qt or UI imports. src/services/voice_input.py includes Qt
+   workers, so the entire services directory should not be described as headless.
+   Package exports matter when tracing transitive imports: commands/__init__.py
+   exports the compatibility executor/registry, and app/__init__.py exports PetWindow.
+3. src/core/file_search.py controls sessions, expiry and authorization;
+   src/services/file_search.py implements search backends. They are distinct layers.
+   BrowserWorker and YouTubePlayWorker likewise serve separate controller and
+   compatibility routes. Similar names are not evidence of duplication.
+4. All six Manager page_* methods are reached by getattr navigation. Qt paintEvent
+   methods are framework callbacks. Public Command serialization, PetWindow tray
+   helpers and memory service convenience APIs remain even where ordinary callers
+   are absent. These are not safe deletion candidates.
+5. Lazy reverse imports exist: the discovery panel imports Manager widget builders,
+   memory.service imports its retriever, and WindowsLauncher.search_web imports
+   ApplicationCore for shared validation. They are live; broad helper relocation
+   would require a separate refactor and import-cycle validation.
+6. application.py (1104 lines) and manager_window.py (1118 lines) concentrate many
+   responsibilities. Memory, discovery and search already have extracted modules;
+   further splitting is a maintainability opportunity, outside this deletion audit.
+7. The previous packaging gap is fixed in the current pet-animal.spec: petimage,
+   UI assets, speech assets and migrations are in datas; Vosk libraries are collected;
+   release/hooks and runtime_diagnostics.py are wired. These release files remain.
+8. All four SVG files have direct or dynamic button consumers; brain-white.svg is
+   chosen for a primary button. All seven sprites and six migrations have runtime
+   consumers. No additional orphan resource was proven safe to remove.
+9. Historical packaged/installer reports describe prior binaries. They are retained
+   as evidence; this cleanup does not rebuild or validate new frozen artifacts.
 
 ## Verification
 
-- Full suite before cleanup: 232 passed, one existing SpeechRecognition/aifc warning.
-- Full suite after cleanup: 232 passed, the same warning.
-- Application self-test: success; report at `build/cleanup-source-verification.json`.
-  Verifies migrations, memory/backup restore, six Manager pages, profile changes,
-  window independence, offline speech engines/models/routing and quit cleanup.
-- AST recheck: no remaining unused-import candidates outside intentional package exports.
-- `git diff --check`: passed.
-- `pip check`: no broken requirements.
+- Initial full-suite run: 866 passed, one existing SpeechRecognition/aifc warning.
+  Cleanup edits overlapped this run, so it is not a strict pre-change baseline.
+- Final full-suite run: 866 passed in 86.57 seconds; one existing
+  SpeechRecognition/aifc deprecation warning.
+- Isolated source self-test: success; build/cleanup-source-verification.json.
+- AST import/name-use recheck: no unexplained unused imports. Intentional package
+  exports and the compatibility PREFIXES alias remain.
+- Core boundary scan: no direct Qt/UI imports under src/core.
+- git diff --check: passed.
+- pip check: no broken requirements.
 
-The checks cover source behavior and installed dependency consistency. Frozen app
-and installer packaging were not rebuilt during this cleanup.
+Source verification and static packaging review do not confirm a freshly built
+installer or a clean dependency installation.

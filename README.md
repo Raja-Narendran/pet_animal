@@ -1,173 +1,746 @@
 # Pet Animal 2.0
 
-A local Windows desktop companion with a Manager, a transparent floating husky, persistent memory, configurable command phrases, and pet profiles.
+An offline, local-first, privacy-focused Windows desktop companion featuring a transparent floating Husky pet, an interactive command bar with `@` application autocomplete and `/` local file search, bundled multilingual speech recognition (English + Tamil + Tanglish), persistent personal memory with Windows DPAPI encryption, software discovery, and a full-featured 6-page native Manager window.
 
-V2 extends this repository's working Python/PyQt6 application, as permitted by the supplied specification's existing-stack exception. Both windows use one Python application core and SQLite connection. There is no HTTP backend, AI provider, or text-to-speech. Microphone commands use a bundled multilingual Whisper model for Tamil and English; audio is never uploaded. Install the dependencies from requirements.txt to enable the microphone. Browser commands (`search <query>`, `play <song> on youtube`) run in background threads and require internet for the requested search/playback. YouTube opens in the default browser, with a search-page fallback if a direct video cannot be resolved. Selenium remains an optional service mode. These dependencies are included by the release specification.
+Pet Animal 2.0 runs natively on Windows with Python and PyQt6. Both windows share a single headless application core and local SQLite database. The entire application operates completely offline without external HTTP backends, cloud telemetry, or remote AI APIs.
 
-## Run
+---
+
+## Table of Contents
+
+- [Overview & Architecture](#overview--architecture)
+- [Quick Start](#quick-start)
+  - [Prerequisites](#prerequisites)
+  - [Local Installation](#local-installation)
+  - [Running the Companion](#running-the-companion)
+  - [Offline Voice Model Setup](#offline-voice-model-setup)
+- [Floating Desktop Companion](#floating-desktop-companion)
+  - [Interactive Sprite & States](#interactive-sprite--states)
+  - [Desktop Anchoring & Movement](#desktop-anchoring--movement)
+  - [Minimize & Restore](#minimize--restore)
+  - [Response Speech Balloon](#response-speech-balloon)
+  - [System Tray & Safe Exit](#system-tray--safe-exit)
+- [Command Bar & `@` Shortcut Autocomplete](#command-bar---shortcut-autocomplete)
+- [Offline Multilingual Voice Recognition](#offline-multilingual-voice-recognition)
+  - [Supported Languages & Code-Mixing](#supported-languages--code-mixing)
+  - [Waveform & Voice Bar Controls](#waveform--voice-bar-controls)
+  - [Privacy & Silence Detection](#privacy--silence-detection)
+- [Native Manager Window](#native-manager-window)
+  - [1. Dashboard](#1-dashboard)
+  - [2. Memory Engine](#2-memory-engine)
+  - [3. Commands & Intent Manager](#3-commands--intent-manager)
+  - [4. Pet Studio](#4-pet-studio)
+  - [5. Activity Audit Log](#5-activity-audit-log)
+  - [6. Settings](#6-settings)
+- [Software Discovery & One-Click Refresh](#software-discovery--one-click-refresh)
+- [Smart Command Pipeline](#smart-command-pipeline)
+  - [Execution Flow](#execution-flow)
+  - [Negation Veto](#negation-veto)
+  - [Reserved Memory & Help Phrases](#reserved-memory--help-phrases)
+  - [Confidence Gating & Clarification](#confidence-gating--clarification)
+  - [Web Search & YouTube Playback](#web-search--youtube-playback)
+- [Local File & Folder Search](#local-file--folder-search)
+  - [Command Grammar & Query Syntax](#command-grammar--query-syntax)
+  - [Interactive Balloon & Keyboard Navigation](#interactive-balloon--keyboard-navigation)
+  - [Smart Ranking & Recency Modes](#smart-ranking--recency-modes)
+  - [Dual-Backend Engine & Everything Integration](#dual-backend-engine--everything-integration)
+  - [Scope Configuration & Manager Settings](#scope-configuration--manager-settings)
+  - [Security Invariants & Privacy Protections](#security-invariants--privacy-protections)
+- [Storage, Privacy & Security Invariants](#storage-privacy--security-invariants)
+  - [Local Storage Layout](#local-storage-layout)
+  - [Windows DPAPI Encryption](#windows-dpapi-encryption)
+  - [History & Logging Privacy](#history--logging-privacy)
+  - [Safe Database Backup & Restore](#safe-database-backup--restore)
+  - [Zero Shell Execution Guarantee](#zero-shell-execution-guarantee)
+- [Development, Testing & Verification](#development-testing--verification)
+  - [Automated Test Suite (866 Tests)](#automated-test-suite-866-tests)
+  - [Headless Diagnostic Self-Test](#headless-diagnostic-self-test)
+  - [Packaging the Windows Release & Installer](#packaging-the-windows-release--installer)
+  - [Release Artifact Verification](#release-artifact-verification)
+
+---
+
+## Overview & Architecture
+
+Pet Animal 2.0 enforces a strict two-tier architecture separating the domain logic from presentation widgets:
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                          Presentation Tier                             │
+│   ┌───────────────────────────────┐  ┌─────────────────────────────┐   │
+│   │         ManagerWindow         │  │          PetWindow          │   │
+│   │    (6 Administration Tabs)    │  │  (Floating Transparent Pet) │   │
+│   └───────────────┬───────────────┘  └──────────────┬──────────────┘   │
+└───────────────────┼─────────────────────────────────┼──────────────────┘
+                    │                                 │
+┌───────────────────▼─────────────────────────────────▼──────────────────┐
+│                         ApplicationController                          │
+│   - Window lifecycle, visibility, tray icon, & minimization            │
+│   - Real-time appearance synchronization & position persistence        │
+│   - Asynchronous worker coordination (voice, browser, discovery)       │
+│   - Application shortcut (@) autocomplete popover coordination         │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+┌───────────────────────────────────▼────────────────────────────────────┐
+│                    ApplicationCore (Headless Domain)                   │
+│   - Pure Python & SQLite 3 (Zero GUI / Qt / HTTP dependencies)         │
+│   - Personal Memory Engine (Typed records, retrieval, DPAPI masking)   │
+│   - Smart Command Interpreter & Intent Resolver                        │
+│   - Software Discovery & Registration Service                          │
+│   - Pet profile validation & appearance settings                       │
+│   - SQLite backup, restore & cryptographic validation                  │
+└─────────────────┬──────────────────────────────────┬───────────────────┘
+                  │                                  │
+┌─────────────────▼─────────────┐    ┌───────────────▼──────────────┐
+│        SQLite Database        │    │        WindowsLauncher       │
+│  - WAL mode, foreign keys     │    │  - Strict allowlist dispatch │
+│  - Migrations (v1 to v5)      │    │  - No shell=True execution   │
+│  - DPAPI ciphertext storage   │    │  - HTTPS URL validation      │
+└───────────────────────────────┘    └──────────────────────────────┘
+```
+
+- **Headless Domain (`src/core/application.py`)**: Central domain controller containing pure Python business logic, SQLite query routines, schema migrations, and listener callbacks.
+- **Application Controller (`src/app/controller.py`)**: Coordinates window lifecycles, manages desktop positioning, synchronizes theme/appearance mutations, and routes commands.
+- **Presentation Windows (`src/app/`)**: `PetWindow` (the desktop companion) and `ManagerWindow` (the management studio).
+- **Execution Services (`src/services/`)**: `WindowsLauncher` for allowlisted application and URL dispatch, `VoiceInputWorker` for offline speech transcription, and `SoftwareDiscoveryService` for Start Menu and registry scanning.
+
+---
+
+## Quick Start
+
+### Prerequisites
+- **Operating System**: Windows 10 or Windows 11 (64-bit).
+- **Python**: Python 3.10 to Python 3.14.
+- **Microphone**: Any standard audio input device for voice recognition.
+
+### Local Installation
+Clone the repository and set up a virtual environment:
+
+```powershell
+# Clone the repository
+git clone https://github.com/Raja-Narendran/pet_animal.git
+cd pet_animal
+
+# Create and activate virtual environment
+python -m venv .venv
+.venv\Scripts\activate
+
+# Install required dependencies
+pip install -r requirements.txt
+```
+
+### Running the Companion
+Launch the application:
 
 ```powershell
 .venv\Scripts\python.exe src/main.py
 ```
 
-For a fresh environment, use Python 3.10 or newer, create `.venv`, and install `requirements.txt`. Development currently includes legacy optional dependencies to keep the existing tests runnable. Prepare both offline speech models with the setup commands below; packaged releases include the speech engines and models.
+- If `launch_pet` is `True` in settings, the transparent floating Husky companion appears on your desktop.
+- If `start_minimized` is `False` or the system tray is hidden, the native **Manager Window** opens automatically.
+- Logs are written to `%LOCALAPPDATA%\PetAnimal\logs\pet_animal.log`.
 
-## Use the app
+### Offline Voice Model Setup
+Pet Animal bundles models in release packages. For local development on a fresh checkout, run the model preparation scripts once:
 
-Type `@` in the pet's chat box to browse enabled apps from Commands. Continue with an app name or alias, such as `@ch` or `@spotify`, to filter the balloon suggestions. Use Up/Down to choose, then Enter, Send, or click an app to open it. Escape dismisses suggestions until the next edit. Suggestions also work above the chat box when the pet is minimized; typing alone never launches an app.
+```powershell
+# 1. Download Vosk English speech model (~40 MB)
+.venv\Scripts\python.exe release/prepare_voice_model.py
 
-- **Dashboard:** live memory and command counts, executions today, active pet, recent activity, and quick actions.
-- **Memory:** manage profile, preference, knowledge, habit, relationship, note and context records; filter by type, scope, category, state and usage; inspect sources, confidence, access counts, tags, aliases and relationships. Reveal sensitive values explicitly. Analyze activity to review habit candidates, clean expired records with confirmation, and preview safe imports.
-- **Commands:** configure phrases per action, detect conflicts, enable/disable, edit, delete and test. **Test Understanding** parses a request without executing it or saving history; **Test selected** executes the configured action.
-- **Pet Studio:** select existing husky sheets or import a PNG sheet; create, edit and activate profiles; adjust size, desktop position, always-on-top, animation, and chat appearance. Preview changes before saving. Saving updates the floating pet immediately.
-- **Activity:** filter executions by command, status or local date. Clear history with confirmation.
-- **Settings:** persist theme, tray, notifications, Manager minimization and whether the pet opens when the app starts; import/export configuration; create/restore database backups; open logs; explicitly quit.
+# 2. Download faster-whisper small multilingual model (~486 MB for Tamil + English)
+.venv\Scripts\python.exe release/prepare_multilingual_voice.py
+```
 
-Close the Manager to leave the floating pet running. Reopen it through **Open Manager** in the tray. With the tray disabled, hiding the pet opens the Manager so there is always a way back. Closing the Manager when both the pet and tray are hidden exits. The pet's × control hides the pet. **Quit** ends the application.
+> [!NOTE]
+> Downloads occur strictly during setup and build. At runtime, the models run 100% offline on your CPU with zero internet connectivity.
 
-## Command patterns
+---
 
-Typed and transcribed commands share Smart Command Understanding. After a negation/input-safety check, exact registered phrases win, followed by existing multilingual normalization, then deterministic intent rules. The resolver uses each command's existing action type and target; enabled registrations remain the source of truth. The initial actions open Chrome, Calculator, Notepad, Explorer, VS Code, Google and YouTube. Application actions accept only the native launcher's five allowlisted IDs. Website actions accept registered HTTPS URLs without credentials. The app never executes raw input as a shell command.
+## Floating Desktop Companion
 
-Examples: `Can you open Chrome?`, `Could you bring up Chrome?`, `I need Chrome`, `start my browser`, `open my code editor`, `Chrome ah open pannu`, `vs code start pannu`, `குரோம் ஓபன் பண்ணுங்க`, and `take me to YouTube`. Aliases are explicit and centralized. Unknown targets, multiple enabled matches, and negated requests such as `do not open chrome` or `chrome open panna vendam` cannot execute. Confidence below 85% returns clarification; `open code` suggests VS Code. An exact custom phrase remains authoritative, including a disabled one, except that negation always cancels an action.
+The companion window (`PetWindow`) provides an interactive desktop presence:
 
-`search Google for Salesforce DevOps`, `look up Salesforce deployment best practices`, `can you play Shape of You`, and `Shape of You song play pannu` reuse the existing search/playback services and background workers. Search requires an enabled registered Google website action; music requires an enabled registered YouTube website action. Removing or disabling those registrations removes the corresponding capability. Searches and song titles remain data, never executable paths or raw destination URLs. Interpretation runs locally without AI dependencies or network calls; requested browser actions retain their existing internet requirements.
+![Floating Pet](docs/screenshots/floating-pet.png)
+
+### Interactive Sprite & States
+The Husky companion features animated pixel-art sprites rendered using transparent frames (`WA_TranslucentBackground`):
+- **Idle**: Gentle breathing/blinking idle animation.
+- **Greeting**: Interactive tail-wagging greeting triggered whenever you click the pet.
+- **Thinking**: Displayed while listening to microphone input or parsing a command.
+- **Working**: Animated during background command execution, search, or YouTube resolution.
+- **Sleeping**: Calming sleep state accessible via right-click context menu.
+- **Success**: Cheerful reaction upon successful command execution.
+- **Error**: Expressive error animation if a command fails or is rejected.
+
+### Desktop Anchoring & Movement
+- **Draggable Positioning**: Click and drag the pet anywhere on your multi-monitor desktop.
+- **Persistent Coordinates**: Screen coordinates are automatically saved to `%LOCALAPPDATA%\PetAnimal\state.json` and synced to the active pet profile.
+- **Screen Boundary Clamping**: The window automatically detects monitor bounds and keeps controls accessible above the taskbar.
+- **Anchor Invariant**: Opening the command box, displaying response balloons, or switching states maintains the pet's screen position without shifting or jumping.
+
+### Minimize & Restore
+- **Minimize Pet (`−`)**: Clicking the minimize button in the control bar collapses the pet companion while keeping the compact command chat box on screen.
+- **Expand Pet (`▲`)**: Clicking the expand arrow on the chat box smoothly restores the pet companion and control bar.
+
+### Response Speech Balloon
+The response bubble (`ResponseBubbleWidget`) is a standalone floating window that appears directly above the companion:
+- Displays command confirmations, query answers, and status messages.
+- Custom-painted antialiased rounded background and soft shadow (eliminating Qt translucent window ghosting).
+- Auto-hides after a configurable timeout (default: 3 seconds for results, 4 seconds for errors).
+- Doubles as the interactive `@` shortcut suggestion popover.
+
+### System Tray & Safe Exit
+- **System Tray Icon**: Lives in the Windows notification area with a context menu (`Show Floating Pet`, `Open Manager`, `Hide Floating Pet`, `Settings`, `Quit`). Double-clicking opens the Manager.
+- **Lockout Prevention**: If you hide the pet companion while the system tray icon is disabled in Settings, the Manager automatically opens so you are never locked out of the application.
+- **Closing the Pet (`×`)**: Hides the companion. If tray notifications are enabled, a balloon confirms the pet is resting.
+- **Exit Pet Animal**: Gracefully shuts down background workers, stops animations, saves coordinates, and terminates the Qt event loop.
+
+---
+
+## Command Bar & `@` Shortcut Autocomplete
+
+The command input bar (`CommandBoxWidget`) provides semi-transparent glass styling with custom-rendered rounded corners and subtle drop shadows:
+
+- **Direct Command Input**: Type any command phrase and press <kbd>Enter</kbd> or click <kbd>➤</kbd>.
+- **`@` Shortcut Autocomplete**:
+  - Type `@` to instantly open a floating suggestion balloon above the companion showing all enabled registered applications.
+  - Continue typing (e.g. `@ch`, `@spot`, `@code`) to filter suggestions in real time.
+  - Navigate suggestions using the <kbd>↑</kbd> and <kbd>↓</kbd> arrow keys.
+  - Press <kbd>Enter</kbd>, click <kbd>➤</kbd>, or click an item directly to launch the application.
+  - Press <kbd>Esc</kbd> to dismiss suggestions.
+  - Works seamlessly in both full companion mode and minimized chat-only mode.
+  - **Live Authorization**: Suggestion entries use stable IDs (`app-<uuid>`) and revalidate the executable path on every launch; typing alone never executes arbitrary code.
+
+---
+
+## Offline Multilingual Voice Recognition
+
+Clicking the microphone icon (`🎤`) transforms the text input into an audio-driven speech bar.
+
+### Supported Languages & Code-Mixing
+Pet Animal uses a pinned [faster-whisper small](https://huggingface.co/Systran/faster-whisper-small) model running on CPU with 8-bit quantization (`int8`):
+- **English**: `open Chrome`, `launch Calculator`, `search Google for Python tutorials`, `play Shape of You on YouTube`.
+- **Tamil**: `குரோம் ஓபன் பண்ணுங்க`, `சென்னை வானிலை தேடு`, `வாத்தி கம்மிங் பாட்டு போடு`.
+- **Tanglish (Code-Mixed Tamil + English)**:
+  - `Chrome open பண்ணு` or `Chrome ah open pannu` → opens Google Chrome.
+  - `Shape of You பாட்டு play பண்ணு` or `Shape of You paattu play pannu` → plays Shape of You on YouTube.
+  - `vs code start பண்ணு` → opens Visual Studio Code.
+  - `சென்னை weather search பண்ணு` → searches Chennai weather.
+
+### Waveform & Voice Bar Controls
+- **Audio Waveform (`AudioWaveform`)**: Renders real-time animated waveform bars responsive to live microphone PCM amplitude.
+- **Status Indicators**: Displays progressive state transitions: `Starting…` → `Listening…` → `Recognizing…`.
+- **Dedicated Cancel Button (`×`)**: Immediately halts audio recording, frees workers, and restores text input without executing.
+- **Correction Preservation**: If a spoken command fails or is unrecognized, the transcribed text is retained in the text input box so you can edit and submit it manually without speaking again.
+
+### Privacy & Silence Detection
+- **Local Audio Processing**: Audio is processed entirely in RAM and immediately discarded after recognition; zero bytes are uploaded or saved to disk.
+- **WebRTC VAD Silence Detection**: Automatically detects when you stop speaking (1.5 seconds of trailing silence) to trigger recognition.
+- **Safety Cutoff**: A 60-second phrase limit automatically discards incomplete recordings rather than executing unintended commands.
+
+---
+
+## Native Manager Window
+
+The Manager Window (`ManagerWindow`) provides a native desktop interface with six specialized administration pages built with Figma-inspired design tokens:
+
+![Dashboard](docs/screenshots/dashboard.png)
+
+### 1. Dashboard
+- **Live Metrics**: Real-time counters showing total saved memories, registered commands, and executions today.
+- **Active Pet Profile**: Displays active pet name, dimensions, sprite preview, and status.
+- **Quick Action Buttons**: Instant access to Add Memory, New Command, Customize Pet, Backup Database, and Open Floating Pet.
+- **Recent Activity Audit Feed**: Chronological log of recent executions with timestamps and success/failure indicators.
+- **Category Progress Bars**: Visual breakdown of stored memories by category.
+
+---
+
+### 2. Memory Engine
+
+![Memory Manager](docs/screenshots/memory.png)
+
+Manage persistent structured memories with Windows DPAPI encryption:
+- **Record Types**: `PROFILE`, `PREFERENCE`, `KNOWLEDGE`, `HABIT`, `RELATIONSHIP`, `NOTE`, `CONTEXT`, and `SYSTEM`.
+- **Record Scopes**:
+  - `GLOBAL`: Available system-wide.
+  - `PROFILE`: Bound to the current user profile.
+  - `PET_PROFILE`: Bound to the active pet companion profile.
+  - `SESSION`: Ephemeral records cleared automatically on application restart or shutdown.
+  - `TEMPORARY`: Time-limited records that expire after a specified duration.
+- **Simplified Categories**:
+  - `Personal Information` (Unencrypted structured data: Name, Address, IDs, Mobile, Email).
+  - `Password` (Sensitive: encrypted via Windows DPAPI).
+  - `Credit and Debit card details` (Sensitive: encrypted via Windows DPAPI).
+  - `Important Notes` (General notes and project context).
+- **Add Memory Dialog**:
+  - Pre-filled personal title selectors: **Name**, **Address**, **IDs** (with dynamic ID title input, e.g. Passport, License), **Mobile number**, **Email ID**, or **Custom**.
+  - Password category automatically prompts for **Website or app name** and generates standard keys (`<app>.password`).
+- **DPAPI Protection**:
+  - Sensitive categories store base64-encoded Windows DPAPI ciphertexts (`dpapi:<base64>`).
+  - Values are masked as `••••••••` in tables, search results, and logs.
+  - Click **Reveal encrypted value** to temporarily decrypt and view records locally.
+- **Tags, Aliases & Relationships**:
+  - Add search tags and multiple trigger aliases (e.g. `user.name` aliased to `my name`, `user name`).
+  - Create directed graph relationships between memories (e.g., `preferred.editor` *used_for* `project.pet_animal.path`).
+- **Lifecycle & Maintenance**:
+  - **Clean Expired Memories**: Filters and purges expired temporary memories with user confirmation.
+  - **Safe Export**: Exports non-sensitive memories and relationships to JSON (sensitive records are strictly excluded).
+  - **Import Memories**: Validates JSON memory payloads with full duplicate and conflict preview before committing.
+  - **Full Encrypted Backup**: Creates a complete SQLite database backup preserving DPAPI ciphertexts.
+
+---
+
+### 3. Commands & Intent Manager
+
+![Commands Manager](docs/screenshots/commands.png)
+
+Configure, audit, and test application and URL commands:
+- **Command Registry**: Table listing command name, action type (`application` or `url`), target ID/URL, configured phrases (1–30 phrases per command), and enabled status.
+- **Actions**: Add new commands, edit existing commands, delete custom commands, toggle enabled/disabled, and run **Test selected**.
+- **Smart Command Tester ("Test Understanding")**:
+  - Tests how Pet Animal understands a typed or spoken phrase without executing it or recording history.
+  - Reports matched intent type, action type, target ID, resolved registered phrase, confidence score, match reason, and negation status.
+- **Software Discovery Panel**: Access the background discovery scanner and application alias manager (detailed below).
+
+---
+
+### 4. Pet Studio
+
+![Pet Studio](docs/screenshots/pet-studio.png)
+
+Customize your desktop companion's appearance and behavior:
+- **Builtin Sprite Sheets**: Select from builtin Husky states (`idle`, `greeting`, `thinking`, `working`, `sleeping`, `success`, `error`).
+- **Import Custom Sprite Sheets**: Import your own PNG sprite sheets (validates $\le 8\text{ MB}$, square frames from 16px to 512px height, horizontal strip of 1–64 frames).
+- **Profile Management**: Create, edit, switch, and delete pet profiles (enforces exactly one active profile).
+- **Live Appearance Sliders**:
+  - **Companion Size**: 96 px to 400 px.
+  - **Chat Bubble Width**: 260 px to 600 px.
+  - **Input Text Font Size**: 10 px to 24 px.
+  - **Corner Radius**: 0 px to 30 px.
+  - **Glass Background Opacity**: 20% to 100%.
+  - **Background Color**: Hex color code picker.
+  - **Toggles**: Always on Top, Enable Animations.
+- **Interactive Live Preview**: Real-time mockup showing the sprite animation and chat box styling before saving.
+
+---
+
+### 5. Activity Audit Log
+
+![Activity Log](docs/screenshots/activity.png)
+
+A comprehensive, privacy-preserving audit log of all command executions:
+- **Columns**: Timestamp, Command Name, Trigger Phrase, Execution Status (`success` / `failed`), Error Details.
+- **Filtering**: Filter by execution status (`All`, `Success`, `Failed`), command selection, or specific local calendar date.
+- **Clear History**: Purges all execution history with user confirmation.
+- **Privacy Protections**: Unsupported inputs are logged strictly as `[unsupported command]`. Free-form search queries and song titles are logged only as `[web search]` or `[music playback]`. Password contents and memory values never enter execution history.
+
+---
+
+### 6. Settings
+
+![Settings](docs/screenshots/settings.png)
+
+Application preferences and database maintenance:
+- **Appearance**: Toggle between **Light Theme** and **Dark Theme**.
+- **Startup & Windows Behavior**:
+  - `Launch floating pet on startup`: Automatically shows the pet companion on boot.
+  - `Start minimized to system tray`: Launches directly to tray without opening the Manager.
+  - `Show system tray icon`: Toggles system tray integration.
+  - `Enable desktop notifications`: Enables balloon notifications for background events.
+- **Voice Recognition Mode**:
+  - `Offline English (Vosk)`: Lightweight CPU speech recognition with streaming partial words.
+  - `Multilingual Offline (Whisper Small)`: Bundled neural model for English, Tamil, and Tanglish.
+- **Local File Search**:
+  - `Search Folders`: Configure custom directory roots (one per line, up to 32 paths) to restrict filesystem searches to chosen folders and workspace trees.
+  - `Everything CLI (es.exe)`: Configure custom path to Voidtools Everything command-line executable (`es.exe`) or rely on automatic detection.
+- **Storage & Diagnostics**:
+  - **Open Logs Folder**: Opens `%LOCALAPPDATA%\PetAnimal\logs` in File Explorer.
+  - **Export Configuration**: Saves settings, commands, profiles, and registered applications to JSON.
+  - **Import Configuration**: Validates and imports configuration JSON.
+  - **Create Database Backup**: Creates an instantaneous SQLite backup snapshot in `%LOCALAPPDATA%\PetAnimal\backups\`.
+  - **Restore Database**: Validates SQLite integrity, foreign keys, schema matching, asset existence, and DPAPI decryption before restoring.
+- **Quit Pet Animal**: Explicit application exit button.
+
+---
+
+## Software Discovery & One-Click Refresh
+
+![Software Discovery](docs/screenshots/software-discovery.png)
+
+The Software Discovery engine automatically finds installed Windows applications without manual path entry:
+
+- **Discovery Providers**:
+  - **User & System Start Menus**: Scans `.lnk` shortcuts from `%APPDATA%\Microsoft\Windows\Start Menu` and `%PROGRAMDATA%\Microsoft\Windows\Start Menu`.
+  - **Windows Uninstall Registry**: Scans 32-bit and 64-bit registry keys (`HKCU` and `HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall`).
+  - **System PATH**: Resolves known common executables on `PATH`.
+- **One-Click "Refresh Installed Software"**:
+  - Click **Refresh Installed Software** in **Commands → Discover Software** to scan all providers in a non-blocking background worker.
+  - Automatically filters out uninstallers, updaters, helper binaries, scripts (`.bat`, `.cmd`, `.ps1`), and administrative tools.
+  - Automatically registers all valid launchable applications with standard `open <app>`, `launch <app>`, and `start <app>` command phrases.
+  - Generates unique aliases for duplicate names (e.g. `spotify app`, `spotify app 2`).
+  - Skips already-registered software and preserves disabled commands.
+  - Displays a summary dialog with counts of added, already existing, invalid, and failed applications.
+- **Candidate Filtering**: Filter candidate lists by **All**, **Launchable**, **Already Added**, **Review Needed**, or **Invalid**.
+- **Manual Registration**: Individual **Add to Pet Animal** dialog allows customizing the application display name, trigger aliases, and command phrases.
+- **Application Management**:
+  - View registered applications, their executable paths, discovery sources, and repair status.
+  - Toggle enabled/disabled.
+  - Edit application trigger aliases.
+  - Unregistering disables associated command phrases while keeping installed files intact.
+- **Repair Status**: If a registered executable is moved or deleted, the application is marked as **Needs repair** and disabled to prevent unsafe launches.
+
+---
+
+## Smart Command Pipeline
+
+### Execution Flow
+
+Every command (typed, transcribed, or submitted via `@` shortcut) passes through a multi-tier deterministic pipeline:
+
+```text
+User Input (Typed or Spoken)
+  │
+  ├─► [1] Input Validation (≤ 500 chars, no control characters)
+  │
+  ├─► [2] File Search Slash Shortcut & Cancel (/query, "no", "cancel")
+  │
+  ├─► [3] Mandatory Negation Veto (e.g. "don't open chrome" ➔ CANCELLED)
+  │
+  ├─► [4] '@' Application Shortcut (Direct lookup of registered application)
+  │
+  ├─► [5] Reserved Phrases Check (help, name storage, memory commands)
+  │
+  ├─► [6] Natural Language File/Folder Search (e.g. "find report.xlsx", "search folders for pet")
+  │
+  ├─► [7] Exact Registered Phrase Match (SQLite registered command phrases win)
+  │
+  ├─► [8] Multilingual / Tanglish Voice Normalization
+  │
+  ├─► [9] Rule-Based Intent Interpretation (Verbs: open, launch, search, play)
+  │
+  ├─► [10] Live Intent Resolver (Matches enabled commands & aliases)
+  │
+  ├─► [11] Confidence Gate (≥ 0.85 auto-executes; < 0.85 prompts clarification)
+  │
+  └─► [12] Safe Launcher Execution (Validated WindowsLauncher or Background Worker)
+```
+
+### Negation Veto
+Pet Animal enforces a mandatory safety veto: any command containing negation words (e.g., `do not`, `don't`, `never`, `vendam`, `koodadhu`) is immediately halted with:
+> *"Command cancelled. Nothing was executed."*
+
+The negation veto takes precedence over everything, including exact registered custom phrases.
+
+### Reserved Memory & Help Phrases
 
 The following deterministic patterns are reserved:
 
-```text
-help
-remember my name as Naren
-what is my name
+| Pattern | Action |
+| :--- | :--- |
+| `help` / `show help` / `commands` / `?` | Displays supported commands and usage syntax. |
+| `remember my name as <value>` | Proposes saving your name; displays Yes/No confirmation dialog. |
+| `save my name as <value>` | Proposes saving your name with Yes/No confirmation. |
+| `my name is <value>, remember that` | Proposes saving your name with Yes/No confirmation. |
+| `what is my name` / `do you remember my name` | Retrieves and displays your saved name. |
+| `remember <key> as <value>` | Proposes saving a memory record with Yes/No confirmation. |
+| `save <key> as <value>` | Proposes saving a memory record with Yes/No confirmation. |
+| `remember that <key> is <value>` | Proposes saving a memory record with Yes/No confirmation. |
+| `remember note: <text>` | Saves an important note record with Yes/No confirmation. |
+| `what is <key>` / `what's <key>` / `recall <key>` | Queries and displays the requested structured memory record. |
+| `what browser do i prefer` | Queries your saved `preferred.browser` preference. |
+| `open my browser` | Resolves `preferred.browser` and launches the preferred application. |
+| `open my editor` | Resolves `preferred.editor` and launches your preferred code editor. |
+| `forget <key>` / `delete memory <key>` | Displays Yes/No confirmation to delete the specified memory record. |
+
+> [!IMPORTANT]
+> Memory proposals expire after 5 minutes if unconfirmed. Confirmed memory commands and their values never enter command history.
+
+### Confidence Gating & Clarification
+- Matches with confidence $\ge 0.85$ execute automatically.
+- Matches with ambiguous targets (multiple matching enabled commands) or confidence below $0.85$ prompt for clarification (e.g. `open code` returns *"Did you mean 'Open VS Code'?"*).
+- Unknown commands return *"Unsupported command. Type help to see registered phrases."*
+
+### Web Search & YouTube Playback
+- **Web Search**: `search Google for <query>`, `search for <query>`, `look up <query>`.
+  - Opens Google Search in your default browser.
+  - Requires an enabled registered `google` URL command.
+  - Runs in a background worker (`BrowserWorker`) to prevent UI freezing.
+- **YouTube Music Playback**: `play <song> on youtube`, `play song <song>`, `<song> பாட்டு play பண்ணு`.
+  - Searches and plays the requested video on YouTube.
+  - Requires an enabled registered `youtube` URL command.
+  - Runs in an asynchronous worker (`YouTubePlayWorker`).
+  - Free-form search queries and song titles are masked in command history as `[web search]` and `[music playback]`.
+
+---
+
+## Local File & Folder Search
+
+Pet Animal 2.0 provides an offline, privacy-preserving desktop search engine for local files and directories. Query files or folders directly from the floating companion's command box or offline voice input, review results in a dedicated interactive balloon with mouse and keyboard navigation, and open documents directly in their default Windows applications.
+
+### Command Grammar & Query Syntax
+
+File search supports fast slash shortcuts, natural language expressions, and multi-turn conversational follow-ups:
+
+| Input Phrase | Behavior |
+| :--- | :--- |
+| `/report.xlsx` or `Find report.xlsx` | Shows matching files in the interactive balloon. |
+| `/pet folder` or `Find pet folder` | Searches specifically for matching folders and displays them in Explorer upon launch. |
+| `Search files for notes` / `Locate budget.csv` | Natural language file search equivalent to slash syntax. |
+| `Search folders for source` / `Find folder src` | Explicit folder search across local directories. |
+| `Find my package.xml` | Offers a unique Salesforce project match when one is uniquely identifiable. |
+| `Yes` | Confirms and opens an offered Salesforce or unique project match. |
+| `Open it` | Opens the currently highlighted or unique result in its default Windows application. |
+| `Show results`, `Next results`, `Previous results` | Paginates through retained results (5 rows per page). |
+| `Open 2` or `Open result 3` | Launches a specific numbered result from the list. |
+| `the Salesforce one` | Resolves and opens a uniquely named project folder match. |
+| `Open the most recent one` / `Open the latest one` | Selects and opens the match with the newest filesystem modification date. |
+| `No` or `Cancel` | Clears active search selection and dismisses the balloon. |
+
+- **Slash Shortcut (`/`)**: Searches files by default. Adding `folder` (e.g. `/pet folder`) searches directories.
+- **Literal Names & Quotes**: Names can contain spaces and Unicode characters (e.g. `/சென்னை.txt`, `/my report.xlsx`). Wrapping names in quotes (e.g. `/"my folder"`, `/"don't stop.txt"`) preserves literal punctuation and prevents collision with negation or grammar rules.
+- **Extension Inference**: File extensions are inferred automatically (e.g. `/report.pdf` or `find package.xml` infers `.pdf` and `.xml` extension filters).
+- **Separation of Parsing and I/O**: Parsing is completely decoupled from filesystem access. The interpreter generates a structured `CommandIntent` (`IntentType.FILE_SEARCH`) without touching disk:
+
+```json
+{
+  "intent": "FILE_SEARCH",
+  "query": "PREPRODRELEASE.yml",
+  "filters": {"extension": ".yml"},
+  "action": "FIND"
+}
 ```
 
-A `remember` or `save` command proposes the value and displays a Yes/No confirmation before saving. `save my name as Naren` and `my name is Naren, remember that` use the same confirmation. Queries retrieve the requested structured record; replacement and deletion require confirmation. These memory phrases are reserved. Cancel leaves memory unchanged. Memory commands do not enter command history. Unsupported input is recorded only as `[unsupported command]`; smart action history records the resolved registered phrase.
+- **Conversational Context**: Follow-up commands (`open it`, `yes`, `open 2`, `the <project> one`, `open the latest one`) resolve against the active `FileSearchSession` without re-running disk scans.
 
-## Storage and privacy
+### Interactive Balloon & Keyboard Navigation
 
-The application stores data in `%LOCALAPPDATA%\PetAnimal`:
+Results appear in an interactive floating balloon positioned directly above the companion:
+
+- **Rich Visual List**: Displays up to 5 visible result rows with a native scrollbar. Each item displays a distinct file or folder icon, item name, containing parent directory, and date badge.
+- **Full Path Tooltips**: Hovering over any result reveals its complete absolute path.
+- **One-Click Mouse Opening**: Click any result row once to immediately open it in its default Windows registered handler or File Explorer.
+- **Keyboard Navigation**:
+  - <kbd>↑</kbd> and <kbd>↓</kbd> arrow keys in the command input box highlight previous/next results.
+  - <kbd>Enter</kbd> (when input box is empty) immediately opens the highlighted result.
+  - <kbd>Esc</kbd> or clicking the close button (`×`) dismisses the search balloon.
+- **Persistent Session State**: Search results remain interactive after opening an item, allowing you to launch multiple related files from the same search session without repeating the query.
+- **Automatic Expiry**: Sessions expire after 5 minutes of inactivity, or upon executing an unrelated command, initiating a new search, or closing the companion.
+
+### Smart Ranking & Recency Modes
+
+The balloon header provides interactive sorting controls to rearrange retained results instantly in memory:
+
+- **Recently opened (Default)**: Combines Windows Recent Items metadata (inspected via native COM `IShellLink::GetPath` without executing shortcuts) with Pet Animal's persistent open history (`file_open_history` table). Items opened recently appear first with an "opened" badge; unrecorded items follow, sorted by modification date with a "No recent-open record" label.
+- **Recently changed**: Sorts results strictly by filesystem modification timestamp (`mtime` descending).
+- **Instant Re-Sorting**: Toggling between sort modes rearranges existing results in memory without issuing new disk scans.
+
+### Dual-Backend Engine & Everything Integration
+
+Pet Animal incorporates a hybrid search engine combining instant index lookups with a robust offline disk traversal fallback:
+
+1. **Voidtools Everything Integration (`es.exe`)**:
+   - Primary high-speed engine when available.
+   - Communicates with Voidtools Everything's local service via the official `es.exe` command-line client over local IPC.
+   - Searches entire NTFS volumes in milliseconds with zero network overhead.
+   - Constructed with safe argument lists, escaped regex filters, and temporary UTF-8 CSV exports that are immediately deleted upon reading.
+   - Auto-detected at `%LOCALAPPDATA%\PetAnimal\integrations\everything\es.exe`, system `PATH`, or standard install paths (`C:\Program Files\Everything`).
+   - Seamlessly falls back to local disk traversal if Everything is stopped, uninstalled, or times out.
+
+2. **Bounded Offline Disk Traversal (Built-in Fallback)**:
+   - 100% offline, zero-dependency recursive directory walker that runs out-of-the-box.
+   - Prioritized search roots: User libraries (`Documents`, `Desktop`, `Downloads`, `Projects`), current working directory, and user home directory, followed by fixed local drives (`C:\`, `D:\`).
+   - Safety boundaries: Hard limit of 5.0 seconds and 100,000 scanned entries; caps retained results at 200 matches.
+   - Smart Exclusion Filters: Skips system and cache directories (`Windows`, `AppData`, `Program Files`, `node_modules`, `.git`, `.venv`, `$Recycle.Bin`, etc.), directory junctions/symlinks, and offline cloud placeholders (OneDrive, iCloud).
+   - Incomplete Search Indicators: Clearly flags when traversal limits are reached so you know results are partial, and safely disables automatic single-match launches on partial sets.
+
+### Scope Configuration & Manager Settings
+
+Configure search boundaries and binary paths in **Manager Window → Settings → Local file search**:
+
+- **Custom Search Folders**: Enter explicit directories (one per line, up to 32 roots), such as `D:\Projects` or `K:\pet_animal`. Limiting scope restricts searches strictly to your active development and document trees.
+- **Everything Executable Path**: Specify an explicit path to `es.exe` if not located on standard paths.
+- **Persistence**: Scope preferences survive database backup/restore and JSON configuration export/import.
+
+### Security Invariants & Privacy Protections
+
+Local file search adheres strictly to Pet Animal's offline security and privacy invariants:
+
+- **Document-Only Launching**: Files are launched exclusively through `os.startfile(path, 'open')` using registered Windows associations. Folders are opened in File Explorer.
+- **Strict Executable & Script Blacklist**: Strictly rejects over 30 dangerous binary and script extensions (`.exe`, `.bat`, `.cmd`, `.ps1`, `.vbs`, `.js`, `.wsf`, `.msc`, `.lnk`, `.url`, `.com`, `.scr`, `.hta`, `.reg`, etc.). Arbitrary executables cannot be invoked via file search; use registered application commands or Software Discovery for programs.
+- **Local Paths Only**: Rejects UNC network shares (`\\server\share`), mapped network drives, and device namespaces.
+- **Zero Command History Logging**: Search queries, partial phrases, and unselected file paths are never written to the `commands` audit log table or application logs.
+- **Bounded Open History**: Successful launches record only the normalized destination path and timestamp in `file_open_history` (SQLite schema version 6), bounded to 2,000 entries with automatic LRU pruning.
+
+---
+
+## Storage, Privacy & Security Invariants
+
+### Local Storage Layout
+All runtime data is stored locally in `%LOCALAPPDATA%\PetAnimal`:
 
 ```text
-database/petanimal.db
-pets/imported/
-backups/
-logs/
-state.json
+%LOCALAPPDATA%\PetAnimal\
+├── database\
+│   └── petanimal.db         # Primary SQLite 3 database (WAL mode, foreign keys, user_version 6)
+├── pets\
+│   └── imported\            # User-imported PNG sprite sheets (<uuid>.png)
+├── backups\                 # Online SQLite backup snapshots (petanimal-YYYYMMDD-HHMMSS-*.db)
+├── logs\
+│   └── pet_animal.log       # Rotating operational log file
+└── state.json               # Window coordinates and UI visibility cache
 ```
 
-Sensitive-category values use Windows DPAPI encryption tied to the current Windows user. Listings mask values, search does not decrypt them, and ordinary memory exports exclude sensitive categories. Edit/reveal is an explicit local UI action. Only the value is encrypted: titles and descriptions should not contain passwords or card numbers. Name and other ordinary categories are plain structured SQLite data.
+### Windows DPAPI Encryption
+- Sensitive categories (`Password`, `Credit and Debit card details`) encrypt values using Windows Data Protection API (`crypt32.dll` via `ctypes`).
+- Ciphertexts are stored as `dpapi:<base64-string>`. No encryption keys are stored on disk.
+- Encryption is cryptographically bound to the active Windows user account security identifier (SID).
+- Sensitive values are masked (`••••••••`) across listings, tables, search results, and logs.
+- Plain memory JSON exports completely omit sensitive records.
+- Values are only decrypted when an authorized user explicitly clicks **Reveal encrypted value** in the Manager UI.
 
-Schema migrations are versioned under `src/database/migrations`. Foreign keys, uniqueness constraints and indexes are enabled. Imports validate records and reject conflicts transactionally rather than silently overwriting existing records. Configuration imports append commands and profiles, apply imported preferences, and activate the imported active profile. An export containing phrases already registered on this installation will be rejected; remove those records from the JSON before an additive import.
+### History & Logging Privacy
+- Unsupported inputs are recorded strictly as `[unsupported command]`. Raw invalid inputs are never stored to prevent leaking mistyped credentials.
+- Free-form browser queries and song titles are logged only as `[web search]` or `[music playback]`.
+- Memory storage and query commands bypass command history entirely.
+- File search queries, partial names, and unselected file paths are never written to command history. Successful file opens are stored solely as normalized paths and timestamps in an isolated, bounded table (`file_open_history`, up to 2,000 items).
 
-Database backups use SQLite's backup API. Restore requires confirmation, validates integrity/schema/actions/settings/assets, and creates a recovery backup before replacement. Backups retain encrypted values and require the original Windows user for decryption. A database backup does not embed imported PNGs: keep `pets/imported` alongside your backups; restore rejects missing assets. Windows login autostart is not configured; the startup preference controls what happens when Pet Animal itself starts.
+### Safe Database Backup & Restore
+Backups are created using SQLite's online backup API (`db.backup()`). Restoring a database validates:
+1. SQLite integrity check (`PRAGMA integrity_check == 'ok'`).
+2. Foreign key consistency (`PRAGMA foreign_key_check`).
+3. Schema parity (matches runtime tables, constraints, and indexes; prevents SQL injection).
+4. Command validation (all actions and application IDs are valid).
+5. Active pet profile (exactly one active profile).
+6. Sprite asset existence (all referenced PNGs exist on disk).
+7. DPAPI decryption test (ensures sensitive records can be decrypted by the current Windows user).
+8. Automatic pre-restore recovery snapshot (creates a recovery backup before replacing live data).
 
-## Development and verification
+### Zero Shell Execution Guarantee
+- **No Shell Execution**: The application never invokes `subprocess.Popen(..., shell=True)` or `os.system()`.
+- **Argument List Execution**: Applications must be registered in `WindowsLauncher.SUPPORTED_APPS` or validated in `registered_applications` with an absolute path to a local `.exe` file.
+- **URL Validation**: Web actions only accept valid `https://` URLs without embedded credentials (`user:pass@`) on standard port 443.
+- **File & Folder Launching**: Documents are opened strictly using `os.startfile(path, 'open')` via Windows registered file handlers. Over 30 executable and script file formats (`.exe`, `.bat`, `.cmd`, `.ps1`, `.vbs`, `.js`, `.lnk`, etc.) as well as UNC network paths are strictly prohibited from being opened via file search.
+
+---
+
+## Development, Testing & Verification
+
+### Automated Test Suite (866 Tests)
+Pet Animal 2.0 includes a comprehensive test suite covering all modules:
 
 ```powershell
+# Run the complete test suite
 .venv\Scripts\python.exe -m pytest -q
+```
+
+**Expected Result**:
+```text
+866 passed, 1 warning in ~81s
+```
+
+Run targeted test modules during focused development:
+
+```powershell
+# Core domain & SQLite tests
+.venv\Scripts\python.exe -m pytest tests/test_application_core.py -q
+
+# Personal Memory Engine tests
+.venv\Scripts\python.exe -m pytest tests/test_memory_engine.py tests/test_memory_commands.py tests/test_memory_ui.py -q
+
+# Smart command interpreter & normalizer
+.venv\Scripts\python.exe -m pytest tests/test_smart_commands.py tests/test_command_interpreter.py -q
+
+# Local file and folder search tests
+.venv\Scripts\python.exe -m pytest tests/test_file_search.py tests/test_interactive_file_results.py -q
+
+# Software discovery service & UI
+.venv\Scripts\python.exe -m pytest tests/test_software_discovery.py tests/test_software_discovery_ui.py -q
+
+# Application shortcuts & autocomplete
+.venv\Scripts\python.exe -m pytest tests/test_application_shortcuts.py -q
+
+# Multilingual voice recognition
+.venv\Scripts\python.exe -m pytest tests/test_multilingual_voice.py tests/test_voice_bar.py -q
+
+# Windows launcher & security checks
+.venv\Scripts\python.exe -m pytest tests/test_windows_launcher.py -q
+```
+
+### Headless Diagnostic Self-Test
+The application features a built-in offscreen verification mode (`--self-test`) that creates a temporary isolated environment to verify database migrations, memory persistence, backup/restore, software discovery, all six Manager pages, live profile switching, speech engines, and clean shutdown without displaying GUI windows:
+
+```powershell
 .venv\Scripts\python.exe src/main.py --self-test build/source-verification.json
 ```
 
-The self-test uses a temporary database, performs no application launches, and checks migration, memory, restore, all six pages, live profile switching, independent Manager closing and quit cleanup. Tests mock external launches and do not require Chrome or VS Code.
+Inspect the generated JSON report:
 
-The UI uses the requested palette and local icons fetched from the supplied Figma reference. It adapts the design to native Qt layouts and replaces sample AI/workspace activity with actual application data. Existing sprite sheets are reused without generating new images.
+```powershell
+Get-Content build/source-verification.json | ConvertFrom-Json
+```
 
-## Windows release
+Expected result:
+```json
+{
+  "success": true,
+  "version": "2.0.0",
+  "software_discovery": {
+    "candidates": 282,
+    "launchable": 71
+  },
+  "personal_memory_engine": {
+    "schema_version": 6,
+    "preference_resolution": true,
+    "aliases_tags_relationships": true,
+    "access_tracking": true,
+    "dpapi_safe_export": true,
+    "session_restore_cleanup": true
+  },
+  "checks": [
+    "SQLite migration",
+    "memory persistence",
+    "backup restore",
+    "six Manager pages",
+    "live profile switching",
+    "independent Manager closing",
+    "offline English and Tamil engines, models, native decoder, and voice command routing",
+    "smart command resolution, negation and parse-only Manager tester",
+    "software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal",
+    "quit cleanup"
+  ]
+}
+```
+
+### Packaging the Windows Release & Installer
+The automated packaging pipeline runs pytest, compiles the application via PyInstaller, and bundles it into a standalone Windows installer:
 
 ```powershell
 .\release\build.ps1
 ```
 
-This runs tests, builds the native application, embeds it in a Windows installer and writes:
+This generates:
+- `dist/v2/pet-animal/pet-animal.exe` (Packaged standalone desktop application)
+- `dist/v2/Pet-Animal-2.0-Setup.exe` (Single-file Windows installer)
 
-```text
-dist/v2/pet-animal/pet-animal.exe
-dist/v2/Pet-Animal-2.0-Setup.exe
-```
+**Installer Features**:
+- Installs to `%LOCALAPPDATA%\Programs\Pet Animal` without administrator privileges.
+- Creates Start Menu shortcuts.
+- Registers an uninstaller in Windows Settings ("Installed apps").
+- Safely preserves your database, memories, and custom sprite sheets in `%LOCALAPPDATA%\PetAnimal` upon uninstallation.
 
-The installer installs for the current Windows user under `%LOCALAPPDATA%\Programs\Pet Animal`, creates a Start menu shortcut, and registers uninstall in Windows Settings. It needs no administrator access. Quit the app before uninstalling. Uninstallation preserves `%LOCALAPPDATA%\PetAnimal` and all saved memories. Existing installations are not overwritten; uninstall the previous app first. The executable and installer are unsigned.
-
-The build preserves the existing V1 output under `dist/pet-animal`. Build resources include the migration, original pet sheets and local design icons.
-
-## Architecture
-
-```text
-ManagerWindow ─┐
-               ├── ApplicationController ── ApplicationCore ── SQLite
-PetWindow ─────┘                                  │
-                                      validated WindowsLauncher
-```
-
-`ApplicationCore` exposes UI-independent memory CRUD/retrieval, phrase registration/execution, read-only `interpret()`, profile/settings management, imports and backups. `src/commands/interpreter` contains immutable intents/results, an interpreter interface, conservative normalization, deterministic rules, and a metadata resolver. `ApplicationController` owns window lifecycle and live propagation. Native OS calls are confined to the validated launcher. DPAPI is isolated in `src/core/secrets.py`. Future interpreters must resolve against the same live registrations and confidence gate; they cannot execute operating-system requests themselves.
-
-See `docs/verification.md` for release validation and remaining verification boundaries.
-
-Local voice recognition uses the bundled multilingual Whisper small model on CPU (int8). Click the microphone to switch the chat input into a live speech bar with an audio-driven waveform. The recognized text appears after you finish speaking. Cancel restores the typed input; successful speech runs through the same command interpretation as typed text, and failed commands retain their text for correction. Registered phrases, including disabled phrases, take precedence over browser shortcuts. Free-form browser queries and song titles are omitted from persistent command history and diagnostic logs.
-
-Prepare the local model when setting up a fresh checkout (download occurs only during setup/build, never while listening):
+### Release Artifact Verification
+Verify frozen build integrity and installer payload:
 
 ```powershell
-.venv\Scripts\python.exe release/prepare_voice_model.py
-.venv\Scripts\python.exe release/prepare_multilingual_voice.py
+# 1. Verify frozen standalone executable self-test
+Start-Process -Wait -WindowStyle Hidden -FilePath .\dist\v2\pet-animal\pet-animal.exe -ArgumentList '--self-test', 'K:\pet_animal\build\packaged-verification.json'
+
+# 2. Verify installer package CRC and embedded payload
+Start-Process -Wait -WindowStyle Hidden -FilePath .\dist\v2\Pet-Animal-2.0-Setup.exe -ArgumentList '--verify-payload', 'K:\pet_animal\build\installer-verification.json'
 ```
 
-The release bundles the model. Application aliases such as “open Google Chrome” and “open note pad” resolve to enabled registered commands for both speech and typed input. Audio remains in memory and is discarded after each utterance. Recognition works offline; requested YouTube playback/web search still requires internet.
+---
 
-Voice commands wait for at least 1.5 seconds of trailing silence before execution. Short pauses stay within the same command. The 60-second recording safety limit rejects an incomplete command instead of executing it.
+## License
 
-Tamil and English can be mixed in voice commands, for example:
-
-- `Shape of You பாட்டு play பண்ணு` → play Shape of You on YouTube.
-- `Chrome open பண்ணு` or `குரோம் ஓபன் பண்ணுங்க` → open Chrome.
-- `வாத்தி கம்மிங் பாட்டு போடு` → search/play the Tamil song title.
-- `சென்னை weather search பண்ணு` → search the mixed-language query.
-
-Recognition automatically detects the spoken language and transcribes it without translation. English brand/song names can remain in English or use the explicit Tamil aliases. Command matching supports documented English/Tamil/Tanglish templates. The waveform follows live microphone audio; the bar shows **Recognizing…** during local processing, which can take several seconds on CPU. Cancel suppresses late results. Disabled and custom command precedence remains intact.
-
-The multilingual model is pinned to a verified [faster-whisper small revision](https://huggingface.co/Systran/faster-whisper-small/tree/536b0662742c02347bc0e980a01041f333bce120). Setup downloads about 486 MB; listening never accesses the model hub or uploads audio. The legacy English Vosk path remains available to developers with `VOICE_MULTILINGUAL=False`.
-
-See [docs/structure-audit.md](docs/structure-audit.md) for the file tree, entry points, dependency audit, cleanup decisions and current packaging gaps.
-
-## Software Discovery
-
-In **Commands → Discover Software**, click **Refresh Installed Software** to scan the user/system Start Menus, Windows Uninstall Registry views, and known PATH executables, then add all valid applications with `open`, `launch`, and `start` command phrases. Clicking Refresh authorizes registration; it never launches the applications. Scans run in a background worker and remain local. Repeated refreshes skip duplicates and preserve existing disabled settings and custom commands. Name/phrase conflicts receive unique aliases such as `spotify app`. The result shows added, existing, invalid, and failed counts.
-
-Search by application name or publisher and filter launchable, already added, review-needed, or invalid entries. Individual **Add to Pet Animal** remains available for entries not added successfully, with editable aliases and command phrases. In **Applications**, rename an entry, edit its aliases, enable/disable it, or remove it. Removing an entry preserves installed files and disables its associated commands. The normal command editor also lists registered applications.
-
-Approved applications use stable IDs stored in SQLite, and the existing Smart Command interpreter reads their aliases dynamically. For example, after approving Spotify, `can you launch spotify`, `start spotify please`, and `spotify open pannu` resolve through the existing registered command and secure launcher. Exact custom phrases and negation rules retain their existing precedence.
-
-V1 discovery registration supports local `.exe` files without shortcut arguments. Scripts, UNC/device paths, administrative binaries, uninstallers, installers, updaters, and helper executables are rejected. Every launch revalidates the stored executable. Missing paths fail with rediscovery guidance; no filename-based remapping occurs. Configuration imports and SQLite restores include registrations and disable missing paths with a **Needs repair** status. Version-one databases and backups migrate without modifying the shipped initial migration.
-
-See [docs/software-discovery-verification.md](docs/software-discovery-verification.md) for architecture, changed files, test results, and release verification boundaries.
-
-See [docs/software-discovery-auto-add-verification.md](docs/software-discovery-auto-add-verification.md) for the latest one-click Refresh behavior and verification.
-
-## Personal Memory Engine
-
-Memory remains in the existing SQLite database. Migration 003 preserves old IDs, values, timestamps and DPAPI ciphertext while adding type, scope, lifetime, importance, confidence, source, expiry and usage metadata. The new headless `src/core/memory` API owns validation, CRUD, deterministic retrieval, relationships, lifecycle and habit candidates. No model, embedding service or cloud storage is involved.
-
-Explicit commands propose saves and deletions before persistence:
-
-```text
-remember my name as Naren
-save my preferred browser as Chrome
-remember my editor is VS Code
-remember project.pet_animal.path as K:\pet_animal
-what is my pet animal project path
-what browser do I prefer
-open my browser
-open my editor
-forget my preferred browser
-```
-
-`preferred.browser` and `preferred.editor` resolve only to approved application IDs or aliases and then pass through the existing command resolver, enabled-command checks and launcher validation. Unavailable, sensitive, low-confidence or unsafe saved preferences cannot launch an application. Exact registered phrases retain precedence. Pending confirmations expire after five minutes and reject stale changes or profile switches. Memory commands and their values stay outside command history.
-
-Retrieval prioritizes exact keys, aliases, exact titles, tags and metadata/text matches. Importance, confidence, recency and capped usage provide small ranking bonuses. Only consumed retrieval updates access metadata; Manager lists, details, Dashboard rendering and **Test Understanding** remain read-only. Sensitive values are masked and never searched as decrypted text.
-
-Session memories are removed on shutdown and startup. Temporary records expire by timestamp without per-record timers; expired records stop participating in retrieval and can be inspected and cleaned in Memory. Profile and pet-profile scopes restrict applicability to their owner. System records are hidden from ordinary lists.
-
-**Analyze activity** considers successful registered executions over the last 90 days. Five uses of a command or ten launches of an application produce a candidate. Saving a candidate requires approval and creates a habit, with source `HABIT_ENGINE`; it does not silently change a preference. Rejection suppresses repeat suggestions for at least 30 days and requires additional evidence before reconsideration.
-
-Safe JSON exports exclude sensitive records and relationships involving excluded records. Import preview reports new records, duplicates, conflicts and invalid records before applying changes. Full SQLite backups preserve DPAPI encryption. Restore validates the new memory entities alongside the existing schema, command, asset and settings safeguards, and does not revive backed-up runtime sessions.
-
-See [docs/personal-memory-engine.md](docs/personal-memory-engine.md) for the implementation and executed verification report.
+Pet Animal 2.0 is licensed under the MIT License. See [LICENSE](LICENSE) for details. Multilingual Whisper components are licensed under the Apache 2.0 License (see [assets/speech/WHISPER-LICENSE.txt](assets/speech/WHISPER-LICENSE.txt)).

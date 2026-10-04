@@ -229,3 +229,30 @@ class WindowsLauncher(BaseLauncher):
             return (True, 'Opening website…') if webbrowser.open(url) else (False, 'Could not open the browser.')
         except Exception:
             return False, 'Could not open the browser.'
+
+    def open_local_result(self, path: str, *, is_folder=False) -> Tuple[bool, str]:
+        """Open a retained search result through its Windows document association.
+
+        Executables, scripts and shortcuts stay in the registered application flow.
+        No arguments, command text or URL are accepted by this document action.
+        """
+        from .file_search import local_path
+        blocked = {'.exe', '.com', '.bat', '.cmd', '.ps1', '.psm1', '.psd1', '.vbs',
+                   '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msi', '.msp', '.scr',
+                   '.lnk', '.url', '.hta', '.reg', '.cpl', '.appref-ms', '.scf',
+                   '.py', '.pyw', '.jar', '.chm', '.pif', '.application', '.gadget'}
+        try:
+            resolved = local_path(path)
+            if str(resolved).casefold() != str(path).casefold():
+                return False, 'This result changed location. Search again.'
+            if resolved.is_dir() != is_folder or not (is_folder or resolved.is_file()):
+                return False, 'This result is no longer available. Search again.'
+            if not is_folder and resolved.suffix.casefold() in blocked:
+                return False, 'Executable files, scripts and shortcuts must use registered application commands.'
+            if os.name != 'nt':
+                return False, 'Opening local search results requires Windows.'
+            os.startfile(str(resolved), 'open')
+            logger.info('Opened a local search result')
+            return True, f'Opening {"folder" if is_folder else "file"}: {resolved}'
+        except (OSError, ValueError, RuntimeError):
+            return False, 'This result could not be opened. It may have moved or have no associated application.'

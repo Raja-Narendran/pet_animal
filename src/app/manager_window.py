@@ -8,10 +8,10 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QPushButton, QListWidget, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
     QHeaderView, QAbstractItemView, QLineEdit, QComboBox, QDialog, QFormLayout,
-    QLayout, QDialogButtonBox, QTextEdit, QCheckBox, QFileDialog,
-    QMessageBox, QInputDialog, QProgressBar, QSlider, QDoubleSpinBox)
-from ..core.application import DEFAULT_PET, identifier
-from ..core.memory import MemoryType, MemoryScope, MemoryLifetime, MemoryConflict
+    QLayout, QDialogButtonBox, QTextEdit, QPlainTextEdit, QCheckBox, QFileDialog,
+    QMessageBox, QProgressBar, QSlider)
+from ..core.application import DEFAULT_PET
+from ..core.memory import MemoryConflict
 from ..config.settings import settings
 from .software_discovery import SoftwareDiscoveryState, SoftwareDiscoveryPanel
 
@@ -121,7 +121,7 @@ class ManagerWindow(QMainWindow):
             QPushButton {background:%(surface)s; border:1px solid %(border)s; border-radius:10px; padding:10px 14px; font-weight:600;}
             QPushButton:hover {border-color:#66A3BF;}
             QPushButton#primary {background:#3368A0; color:white; border-color:#3368A0;}
-            QLineEdit,QTextEdit,QComboBox,QSpinBox,QDoubleSpinBox {background:%(surface)s; border:1px solid %(border)s; border-radius:8px; padding:8px;}
+            QLineEdit,QTextEdit,QPlainTextEdit,QComboBox,QSpinBox,QDoubleSpinBox {background:%(surface)s; border:1px solid %(border)s; border-radius:8px; padding:8px;}
             QListWidget {background:transparent; border:0; outline:0;}
             QListWidget::item {padding:14px; border-radius:10px; margin-bottom:6px;}
             QListWidget::item:selected {background:#3368A0; color:white;}
@@ -248,16 +248,6 @@ class ManagerWindow(QMainWindow):
             layout.addWidget(progress)
         layout.addWidget(button('Open memory', lambda: self.navigation.setCurrentRow(1), icon='arrow-right'))
         self.content_layout.addWidget(frame)
-
-    @staticmethod
-    def memory_choice(enum, current=None, all_label=None):
-        choice = QComboBox()
-        if all_label:
-            choice.addItem(all_label, None)
-        for item in enum:
-            choice.addItem(item.value.replace('_', ' ').title(), item.value)
-        choice.setCurrentIndex(max(0, choice.findData(current)))
-        return choice
 
     def page_memory(self):
         self.heading('Personal memory', 'Your profile, preferences and knowledge, saved locally and under your control.', [button('Add memory', self.edit_memory, True, 'brain')])
@@ -422,12 +412,6 @@ class ManagerWindow(QMainWindow):
                 self.memory_reveal_button.setText('Hide value')
         self.guard(reveal)
 
-    def new_category(self):
-        name, ok = QInputDialog.getText(self, 'New category', 'Category name')
-        if ok:
-            sensitive = QMessageBox.question(self, 'Sensitive category', 'Encrypt values in this category with Windows user encryption?', QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes
-            self.guard(lambda: self.core.add_category(name, sensitive))
-
     def _existing_default_titles(self):
         records = self.core.memories()
         has_name = False
@@ -457,6 +441,10 @@ class ManagerWindow(QMainWindow):
             category.addItem(cat['name'], cat['id'])
         if record:
             category.setCurrentIndex(category.findData(record['category_id']))
+        else:
+            personal_idx = next((i for i in range(category.count()) if 'personal' in category.itemText(i).lower()), -1)
+            if personal_idx >= 0:
+                category.setCurrentIndex(personal_idx)
         title = QLineEdit(record['title'] if record else '')
         title.setObjectName('memoryTitle')
         key = QLineEdit(record['memory_key'] if record else '')
@@ -858,6 +846,8 @@ class ManagerWindow(QMainWindow):
                 f'Confidence: {result.confidence:.0%}',
                 'Match: ' + result.reason.value,
                 'Execution: Not executed',
+                *(('File request: ' + json.dumps(intent.to_dict(), ensure_ascii=False),)
+                  if intent and intent.intent.value == 'FILE_SEARCH' else ()),
             ]))
         layout.addWidget(self.smart_input)
         self.smart_test_button = button('Test Understanding', test_understanding)
@@ -1067,6 +1057,31 @@ class ManagerWindow(QMainWindow):
         layout.addLayout(form)
         layout.addWidget(button('Save preferences', lambda: self.guard(lambda: self.core.save_settings(dict(config, theme=theme.currentText(), voice_mode=voice_mode.currentData()))), True))
         layout.addWidget(label('Default profile, size and animation preferences are managed in Pet Studio.', 'muted'))
+        self.content_layout.addWidget(frame)
+        frame, layout = self.card('Local file search')
+        search_config = self.core.file_search_settings()
+        roots = QPlainTextEdit('\n'.join(search_config['roots']))
+        roots.setPlaceholderText('One local folder per line, for example D:\\Projects.\nLeave blank to search local disks.')
+        roots.setMaximumHeight(95)
+        layout.addWidget(label('Search folders (one per line)', 'muted'))
+        layout.addWidget(roots)
+        def add_search_folder():
+            folder = QFileDialog.getExistingDirectory(self, 'Choose a search folder')
+            if folder:
+                roots.appendPlainText(folder)
+        layout.addWidget(button('Add folder', add_search_folder))
+        es_path = QLineEdit(search_config['everything_executable'])
+        es_path.setPlaceholderText('Optional es.exe path; blank uses automatic detection')
+        layout.addWidget(label('Everything command-line client', 'muted'))
+        layout.addWidget(es_path)
+        def choose_es():
+            path, _ = QFileDialog.getOpenFileName(self, 'Choose Everything es.exe', '', 'Everything CLI (es.exe)')
+            if path:
+                es_path.setText(path)
+        layout.addWidget(button('Choose es.exe', choose_es))
+        layout.addWidget(button('Save search settings', lambda: self.guard(lambda: self.core.save_file_search_settings(
+            [line.strip() for line in roots.toPlainText().splitlines() if line.strip()], es_path.text())), True))
+        layout.addWidget(label('Type /package.xml or Find pet folder. Everything and es.exe are optional; Everything must be running. Without them, a bounded background scan searches local filenames. Partial results are marked. Queries and result paths are not saved in command history.', 'muted'))
         self.content_layout.addWidget(frame)
         frame, layout = self.card('Data')
         layout.addWidget(button('Export configuration', lambda: self.export_json(self.core.export_configuration(), 'configuration.json')))

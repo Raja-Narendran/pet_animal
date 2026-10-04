@@ -7,6 +7,7 @@ AUTO_EXECUTE_THRESHOLD = 0.85
 
 
 class IntentType(str, Enum):
+    FILE_SEARCH = 'FILE_SEARCH'
     OPEN_APPLICATION = 'OPEN_APPLICATION'
     OPEN_WEBSITE = 'OPEN_WEBSITE'
     WEB_SEARCH = 'WEB_SEARCH'
@@ -41,6 +42,16 @@ class CommandIntent:
     confidence: float = 1.0
     source: str = 'rule_based'
     memory_type: str | None = None
+    query: str | None = None
+    filters: tuple[tuple[str, str], ...] = ()
+    action: str | None = None
+
+    def to_dict(self):
+        if self.intent == IntentType.FILE_SEARCH:
+            return dict(intent=self.intent.value, query=self.query,
+                        filters=dict(self.filters), action=self.action)
+        return dict(intent=self.intent.value, target=self.target, value=self.value,
+                    confidence=self.confidence, source=self.source)
 
 
 @dataclass(frozen=True)
