@@ -1,4 +1,4 @@
-"""Native Manager with six pages, shared services, and Figma-inspired tokens."""
+"""Native Manager with seven pages, shared services, and Figma-inspired tokens."""
 import json
 import re
 from datetime import datetime
@@ -20,7 +20,7 @@ PALETTES = {
     'light': dict(background='#F7F9FC', surface='#FFFFFF', text='#1F2937', muted='#64748B', border='#E2E8F0', selection='#D1D5DB'),
     'dark': dict(background='#111827', surface='#1F2937', text='#F7F9FC', muted='#A6B5C9', border='#374151', selection='#4B5563'),
 }
-PAGES = ['Dashboard', 'Memory', 'Commands', 'Pet Studio', 'Activity', 'Settings']
+PAGES = ['Dashboard', 'Memory', 'Commands', 'Workflows', 'Pet Studio', 'Activity', 'Settings']
 
 
 def label(value, role=''):
@@ -60,6 +60,7 @@ class ManagerWindow(QMainWindow):
         self.memory_selected_id = None
         self.activity_status = self.activity_date = ''
         self.activity_command = None
+        self.workflows_panel = None
         root = QWidget()
         self.setCentralWidget(root)
         shell = QHBoxLayout(root)
@@ -80,6 +81,7 @@ class ManagerWindow(QMainWindow):
         nav.addWidget(button('Open floating pet', self.controller.show_pet, True))
         shell.addWidget(sidebar)
         scroll = QScrollArea()
+        self.content_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.content = QWidget()
@@ -92,14 +94,27 @@ class ManagerWindow(QMainWindow):
         self.core.listeners.append(self.refresh)
         self.navigation.setCurrentRow(PAGES.index(self.page))
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        panel = getattr(self, "workflows_panel", None)
+        if panel is not None:
+            panel.set_compact(self.width() < 1100)
+
     def closeEvent(self, event):
         event.ignore()
+        if self.page == "Workflows" and self.workflows_panel and not self.workflows_panel.can_leave():
+            return
         self.hide()
         if not self.controller.pet.isVisible() and not self.controller.pet.tray_icon.isVisible():
             self.controller.quit()
 
     def navigate(self, index):
         if index < 0:
+            return
+        if PAGES[index] != self.page and self.page == "Workflows" and self.workflows_panel and not self.workflows_panel.can_leave():
+            self.navigation.blockSignals(True)
+            self.navigation.setCurrentRow(PAGES.index(self.page))
+            self.navigation.blockSignals(False)
             return
         self.page = PAGES[index]
         config = self.core.app_settings()
@@ -140,9 +155,11 @@ class ManagerWindow(QMainWindow):
             item = self.content_layout.takeAt(0)
             if item.widget():
                 item.widget().hide()
-                item.widget().deleteLater()
+                if item.widget() is not self.workflows_panel:
+                    item.widget().deleteLater()
         getattr(self, 'page_' + self.page.lower().replace(' ', '_'))()
-        self.content_layout.addStretch()
+        if self.page != "Workflows":
+            self.content_layout.addStretch()
 
     def heading(self, title, subtitle, actions=()):
         widget = QWidget()
@@ -814,6 +831,20 @@ class ManagerWindow(QMainWindow):
         buttons.setParent(dialog)
         return dialog, form, buttons
 
+    def page_workflows(self):
+        if self.workflows_panel is None:
+            from .workflow_panel import WorkflowPanel
+            self.workflows_panel = WorkflowPanel(self)
+        self.workflows_panel.set_compact(self.width() < 1100)
+        self.workflows_panel.refresh()
+        self.content_layout.addWidget(self.workflows_panel, 1)
+        self.workflows_panel.show()
+
+    def open_workflow(self, routine_id):
+        self.controller.show_manager('Workflows')
+        if self.page == 'Workflows' and self.workflows_panel.can_leave():
+            self.workflows_panel.open_routine(routine_id)
+
     def page_commands(self):
         self.heading('Commands', 'Registered phrases and natural requests for your enabled actions.', [button('New command', self.edit_command, True, 'zap')])
         records = self.core.commands()
@@ -826,6 +857,7 @@ class ManagerWindow(QMainWindow):
         bar = QWidget()
         row = QHBoxLayout(bar)
         row.addWidget(button('Edit selected', lambda: selected(self.edit_command)))
+        row.addWidget(button('Edit in Workflows', lambda: selected(lambda r: self.open_workflow(r['target']) if r['action_type'] == 'routine' else None)))
         row.addWidget(button('Test selected', lambda: selected(lambda r: QMessageBox.information(self, 'Command result', self.controller.execute(r['phrases'][0], self)['message']))))
         row.addWidget(button('Delete selected', lambda: selected(lambda r: self.confirm('Delete command', 'Delete this command and all its phrases?', lambda: self.core.delete_command(r['id'])))))
         self.content_layout.addWidget(bar)
@@ -861,6 +893,9 @@ class ManagerWindow(QMainWindow):
     def edit_command(self, record=None):
         if isinstance(record, bool):
             record = None
+        if record and record["action_type"] == "routine":
+            self.open_workflow(record["target"])
+            return
         dialog, form, buttons = self.dialog('Edit command' if record else 'New command')
         name = QLineEdit(record['name'] if record else '')
         action = QComboBox()
@@ -1037,7 +1072,20 @@ class ManagerWindow(QMainWindow):
         row.addWidget(button('Filter', apply))
         self.content_layout.addWidget(filters)
         records = self.core.history(self.activity_status, self.activity_date, self.activity_command)
-        self.content_layout.addWidget(self.table(['Command', 'Phrase', 'Executed', 'Status / reason'], [(r['name'], r['trigger_phrase'], self.local_time(r['executed_at']), r['execution_status'] + (' · ' + r['error_message'] if r['error_message'] else '')) for r in records]))
+        table = self.table(['Command', 'Phrase', 'Executed', 'Status / reason'], [(r['name'], r['trigger_phrase'], self.local_time(r['executed_at']), r['execution_status'] + (' · ' + r['error_message'] if r['error_message'] else '')) for r in records])
+        self.content_layout.addWidget(table)
+        def details():
+            if table.currentRow() < 0:
+                return
+            record = records[table.currentRow()]
+            runs = self.core.rows('SELECT * FROM workflow_runs WHERE history_id=?', (record['id'],))
+            if not runs:
+                return
+            steps = self.core.rows('SELECT * FROM workflow_step_runs WHERE run_id=? ORDER BY position', (runs[0]['id'],))
+            QMessageBox.information(self, 'Routine run details', runs[0]['name'] + ' · ' + runs[0]['status'] + '\n' + '\n'.join(
+                f"{s['position'] + 1}. {s['step_type']}: {s['status']}" + (' · ' + s['outcome'] if s['outcome'] else '') for s in steps))
+        table.doubleClicked.connect(details)
+        self.content_layout.addWidget(button('Routine run details', details))
 
     def page_settings(self):
         self.heading('Settings', 'Application preferences and local data management.')

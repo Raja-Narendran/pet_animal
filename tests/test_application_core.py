@@ -45,7 +45,7 @@ def test_migration_restart_and_memory_crud(tmp_path):
     core.close()
     core = ApplicationCore(tmp_path, Launcher())
     assert core.get_memory(key)['memory_value'] == 'Nova'
-    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 6
+    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 7
     assert core.db.execute('PRAGMA foreign_keys').fetchone()[0] == 1
     core.delete_memory(key)
     assert core.memories() == []
@@ -233,10 +233,12 @@ def test_two_windows_share_configuration_and_close_independently(core, qapp, mon
         assert not app.manager.isVisible()
         assert app.pet.isVisible()
         app.show_manager()
-        for index in range(6):
+        for index in range(7):
             app.manager.navigation.setCurrentRow(index)
             qapp.processEvents()
-            assert app.manager.content_layout.count() > 1
+            assert app.manager.content_layout.count() >= 1
+            if app.manager.page == "Workflows":
+                assert app.manager.content_layout.itemAt(0).widget() is app.manager.workflows_panel
     finally:
         core.listeners.clear()
         app.pet.tray_icon.hide()

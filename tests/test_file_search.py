@@ -406,7 +406,7 @@ def test_controller_search_is_asynchronous_and_stale_results_are_ignored(qtbot, 
         qtbot.waitUntil(lambda: not controller._file_workers)
         assert controller.pet.response_bubble.label.text().startswith('Commands:')
         assert not core.file_session.active()
-        controller.manager.navigation.setCurrentRow(5)
+        controller.manager.navigation.setCurrentRow(__import__('src.app.manager_window', fromlist=['PAGES']).PAGES.index('Settings'))
         assert controller.manager.findChildren(__import__('PyQt6.QtWidgets', fromlist=['QPlainTextEdit']).QPlainTextEdit)
     finally:
         release.set()

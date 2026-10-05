@@ -86,7 +86,7 @@ def run_self_test(app):
             result['software_discovery'] = dict(candidates=len(detected), launchable=sum(item.launchable for item in detected))
             core.confirm_name('Verification user')
             assert core.execute('what is my name')['message'] == 'Verification user'
-            assert core.db.execute('PRAGMA user_version').fetchone()[0] == 6
+            assert core.db.execute('PRAGMA user_version').fetchone()[0] == 7
             service = core.memory_service
             category = next(c['id'] for c in core.categories() if c['name'] == 'Important Notes')
             editor = core.execute('remember my editor is VS Code')
@@ -114,10 +114,10 @@ def run_self_test(app):
             assert core.get_memory(session_memory) is None
             assert service.get_relationships(project)
             assert core.get_memory(private, reveal=True)['memory_value'] == 'DPAPI verification value'
-            result['personal_memory_engine'] = dict(schema_version=6, preference_resolution=True,
+            result['personal_memory_engine'] = dict(schema_version=7, preference_resolution=True,
                 aliases_tags_relationships=True, access_tracking=True, dpapi_safe_export=True,
                 session_restore_cleanup=True)
-            for index in range(6):
+            for index in range(7):
                 controller.manager.navigation.setCurrentRow(index)
                 app.processEvents()
             core.save_profile('Verification pet', 'builtin-idle', dict(DEFAULT_PET, size=128))
@@ -148,9 +148,53 @@ def run_self_test(app):
             controller.manager.smart_test_button.click()
             assert 'Execution: Not executed' in controller.manager.smart_result.text()
             assert not core.history()
+            # Verify the full routine without opening external applications.
+            import time
+            class VerificationLauncher:
+                def __init__(self):
+                    self.calls = []
+                def open_application(self, key):
+                    self.calls.append(('application', key))
+                    return True, 'Accepted'
+                def open_registered_url(self, url):
+                    self.calls.append(('url', url))
+                    return True, 'Accepted'
+                def open_local_result(self, path, *, is_folder=False):
+                    self.calls.append(('folder' if is_folder else 'file', path))
+                    return True, 'Accepted'
+            original_launcher = core.launcher
+            verification_launcher = VerificationLauncher()
+            core.launcher = verification_launcher
+            try:
+                verification_file = Path(temp) / 'routine-verification.txt'
+                verification_file.write_text('Routine file verification', encoding='utf-8')
+                routine_id = core.workflows.save('Verification Work', ['verification start work'], [
+                    dict(type='application', value='vscode'), dict(type='application', value='chrome'),
+                    dict(type='url', value='https://dev.azure.com'), dict(type='folder', value=str(Path(temp).resolve())),
+                    dict(type='file', value=str(verification_file)),
+                    dict(type='wait', value=2), dict(type='message', value='Ready!')])
+                assert controller.execute('verification start work')['success']
+                deadline = time.monotonic() + 10
+                while core.workflows.active and time.monotonic() < deadline:
+                    app.processEvents()
+                    time.sleep(.005)
+                assert core.workflows.active is None
+                assert controller.last_workflow_result.status == 'success'
+                assert controller.last_workflow_result.message == 'Ready!'
+                assert [kind for kind, target in verification_launcher.calls] == ['application', 'application', 'url', 'folder', 'file']
+                assert len(core.history()) == 1
+                assert all(item['status'] == 'success' for item in core.rows('SELECT status FROM workflow_step_runs'))
+                workflow_backup = core.backup()
+                core.workflows.delete(routine_id)
+                core.restore(workflow_backup)
+                assert core.workflows.get(routine_id)
+                result['workflows'] = dict(schema_version=7, ordered_execution=True, asynchronous_wait=True,
+                                          private_history=True, backup_restore=True, default_app_file_step=True)
+            finally:
+                core.launcher = original_launcher
             controller.quit()
             assert not controller.pet.tray_icon.isVisible()
-            result.update(success=True, checks=['SQLite migration', 'memory persistence', 'backup restore', 'six Manager pages', 'live profile switching', 'independent Manager closing', 'offline English and Tamil engines, models, native decoder, and voice command routing', 'smart command resolution, negation and parse-only Manager tester', 'software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal', 'quit cleanup'])
+            result.update(success=True, checks=['SQLite migration', 'memory persistence', 'backup restore', 'seven Manager pages', 'approved workflows, asynchronous ordered execution and private step history', 'live profile switching', 'independent Manager closing', 'offline English and Tamil engines, models, native decoder, and voice command routing', 'smart command resolution, negation and parse-only Manager tester', 'software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal', 'quit cleanup'])
         except Exception as error:
             result['error'] = str(error)
         finally:

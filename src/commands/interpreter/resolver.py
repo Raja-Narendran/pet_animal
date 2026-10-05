@@ -14,6 +14,8 @@ class IntentResolver:
                 target = json.loads(command['action_config'])['target']
             except (KeyError, TypeError, ValueError):
                 return None
+        if command.get('action_type') == 'routine':
+            return CommandIntent(IntentType.RUN_ROUTINE, target)
         if command.get('action_type') == 'application':
             return CommandIntent(IntentType.OPEN_APPLICATION, target)
         if command.get('action_type') == 'url':

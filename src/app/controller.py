@@ -1,5 +1,5 @@
 """Owns the two native windows and coordinates their lifetime."""
-from PyQt6.QtCore import QObject, Qt, QThread, QEvent, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, QEvent, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QAction
 from .pet_window import PetWindow
@@ -49,10 +49,37 @@ class FileSearchWorker(QThread):
             self.completed.emit(response)
 
 
+class WorkflowActionWorker(QThread):
+    completed = pyqtSignal(str, bool)
+
+    def __init__(self, run_id, step, launcher, parent):
+        super().__init__(parent)
+        self.run_id, self.step, self.launcher = run_id, step, launcher
+
+    def run(self):
+        try:
+            if self.step.type == 'application':
+                success, _ = self.launcher.open_application(self.step.value)
+            elif self.step.type == 'url':
+                success, _ = self.launcher.open_registered_url(self.step.value)
+            else:
+                success, _ = self.launcher.open_local_result(self.step.value, is_folder=self.step.type == 'folder')
+        except Exception:
+            success = False
+        self.completed.emit(self.run_id, bool(success))
+
+
 class ApplicationController(QObject):
+    workflow_updated = pyqtSignal(object)
+
     def __init__(self, core, parent=None):
         super().__init__(parent)
         self.core = core
+        self._workflow_worker = None
+        self._workflow_timer = QTimer(self)
+        self._workflow_timer.setSingleShot(True)
+        self._workflow_timer.timeout.connect(self._workflow_wait_finished)
+        self.last_workflow_result = None
         self._browser_workers = set()
         self._file_workers = set()
         self._shutting_down = False
@@ -231,6 +258,8 @@ class ApplicationController(QObject):
     def execute(self, phrase, parent=None):
         result = self.core.execute(phrase, defer_browser=True, defer_file_search=True)
         self._cancel_superseded_file_workers()
+        if 'routine_id' in result:
+            return self.start_routine(result['routine_id'], result.get('routine_phrase'))
         if 'file_search_intent' in result:
             worker = FileSearchWorker(self.core.file_search, result['file_search_intent'], result['file_search_token'], self)
             self._file_workers.add(worker)
@@ -264,6 +293,102 @@ class ApplicationController(QObject):
             else:
                 result = dict(success=False, message='Memory was not changed.', pet_state='idle')
         return result
+
+    def start_routine(self, routine_id, phrase=None):
+        if self._shutting_down:
+            return dict(success=False, message='The application is closing.', pet_state='idle')
+        if self._workflow_worker is not None:
+            return dict(success=False, message='A routine is already running. Wait for the current action to finish.', pet_state='working')
+        try:
+            engine = self.core.workflows.start(routine_id, phrase)
+        except ValueError as error:
+            return dict(success=False, message=str(error), pet_state='error')
+        self.last_workflow_result = engine.result
+        self.workflow_updated.emit(engine.result)
+        if engine.result.status != 'running':
+            return dict(success=False, message=engine.result.message, pet_state='error')
+        QTimer.singleShot(0, lambda token=engine.result.id: self._workflow_next(token))
+        return dict(success=True, message='Starting ' + engine.result.name + '…', pet_state='working')
+
+    def _workflow_progress(self):
+        engine = self.core.workflows.active
+        if engine:
+            self.core.workflows.persist_progress()
+            self.last_workflow_result = engine.result
+            self.workflow_updated.emit(engine.result)
+
+    def _workflow_next(self, token):
+        engine = self.core.workflows.active
+        if self._shutting_down or not engine or engine.result.id != token:
+            return
+        step = engine.begin_step()
+        self._workflow_progress()
+        if step is None:
+            self._workflow_finish()
+            return
+        try:
+            # Main-thread live validation; no database object crosses the boundary.
+            self.core.workflows.validate_steps([step.to_dict()], live=True)
+        except ValueError:
+            engine.complete_step(False, 'target_unavailable')
+            self._workflow_progress()
+            self._workflow_finish()
+            return
+        if step.type == 'wait':
+            self._workflow_wait_token = token
+            self._workflow_timer.start(round(float(step.value) * 1000))
+        elif step.type == 'message':
+            self._show_result(dict(success=True, message=str(step.value), pet_state='working'))
+            self._workflow_action_completed(token, True)
+        else:
+            from ..services.windows_launcher import WindowsLauncher
+            launcher = self.core.launcher
+            if isinstance(launcher, WindowsLauncher):
+                approved = self.core.get_registered_application(step.value) if step.type == 'application' else None
+                launcher = WindowsLauncher(registered_application_lookup=lambda key, app=approved: app if app and app.id == key else None)
+                launcher._vscode_path = self.core.launcher._vscode_path
+                launcher._chrome_path = self.core.launcher._chrome_path
+            worker = WorkflowActionWorker(token, step, launcher, self)
+            self._workflow_worker = worker
+            worker.completed.connect(self._workflow_action_completed)
+            worker.finished.connect(lambda w=worker: self._release_workflow_worker(w))
+            worker.start()
+
+    def _release_workflow_worker(self, worker):
+        if self._workflow_worker is worker:
+            self._workflow_worker = None
+        worker.deleteLater()
+
+    def _workflow_wait_finished(self):
+        self._workflow_action_completed(self._workflow_wait_token, True)
+
+    def _workflow_action_completed(self, token, success):
+        engine = self.core.workflows.active
+        if self._shutting_down or not engine or engine.result.id != token:
+            return
+        engine.complete_step(success)
+        self._workflow_progress()
+        if engine.result.status == 'running':
+            QTimer.singleShot(0, lambda: self._workflow_next(token))
+        else:
+            self._workflow_finish()
+
+    def _workflow_finish(self):
+        engine = self.core.workflows.active
+        if not engine:
+            return
+        self.last_workflow_result = engine.result
+        self.core.workflows.finish()
+        self.workflow_updated.emit(self.last_workflow_result)
+        self._show_result(dict(success=engine.result.status == 'success', message=engine.result.message,
+                               pet_state='success' if engine.result.status == 'success' else ('idle' if engine.result.status == 'cancelled' else 'error')))
+
+    def stop_routine(self):
+        self._workflow_timer.stop()
+        engine = self.core.workflows.active
+        if engine:
+            engine.cancel()
+            self._workflow_finish()
 
     def _cancel_superseded_file_workers(self):
         for worker in self._file_workers:
@@ -369,7 +494,10 @@ class ApplicationController(QObject):
     def shutdown(self):
         if self._shutting_down:
             return
+        self.stop_routine()
         self._shutting_down = True
+        if self._workflow_worker is not None:
+            self._workflow_worker.wait()
         for worker in list(self._file_workers):
             worker.cancel()
             worker.wait()

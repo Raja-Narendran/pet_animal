@@ -18,6 +18,11 @@ from ..utils.logger import get_logger
 logger = get_logger("launcher")
 
 
+# Shared by workflow approval and association-based file opening.
+BLOCKED_FILE_EXTENSIONS = frozenset({'.exe', '.com', '.bat', '.cmd', '.ps1', '.psm1', '.psd1', '.vbs',
+    '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msi', '.msp', '.scr', '.lnk', '.url', '.hta', '.reg',
+    '.cpl', '.appref-ms', '.scf', '.py', '.pyw', '.jar', '.chm', '.pif', '.application', '.gadget'})
+
 class BaseLauncher(ABC):
     """Abstract interface for desktop launcher (enables easy testing and mocking)."""
 
@@ -150,7 +155,7 @@ class WindowsLauncher(BaseLauncher):
                 if vscode_path:
                     # Validate the resolved path actually exists on disk
                     if not os.path.isfile(vscode_path):
-                        logger.error(f"Resolved VS Code path does not exist: {vscode_path}")
+                        logger.error("Resolved VS Code executable is unavailable.")
                         return False, "I couldn't find Visual Studio Code on this computer."
                     if vscode_path.lower().endswith((".cmd", ".bat")):
                         # Launch .cmd/.bat via cmd.exe without shell=True to avoid
@@ -165,8 +170,8 @@ class WindowsLauncher(BaseLauncher):
                     return False, "I couldn't find Visual Studio Code on this computer."
 
         except Exception as e:
-            logger.exception(f"Failed to launch application '{app_key}': {e}")
-            return False, f"Failed to open {app_key}: {e}"
+            logger.warning("Approved application launch failed.")
+            return False, "The approved application could not be opened."
 
         return False, f"Unsupported application: {app_key}"
 
@@ -237,17 +242,13 @@ class WindowsLauncher(BaseLauncher):
         No arguments, command text or URL are accepted by this document action.
         """
         from .file_search import local_path
-        blocked = {'.exe', '.com', '.bat', '.cmd', '.ps1', '.psm1', '.psd1', '.vbs',
-                   '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msi', '.msp', '.scr',
-                   '.lnk', '.url', '.hta', '.reg', '.cpl', '.appref-ms', '.scf',
-                   '.py', '.pyw', '.jar', '.chm', '.pif', '.application', '.gadget'}
         try:
             resolved = local_path(path)
             if str(resolved).casefold() != str(path).casefold():
                 return False, 'This result changed location. Search again.'
             if resolved.is_dir() != is_folder or not (is_folder or resolved.is_file()):
                 return False, 'This result is no longer available. Search again.'
-            if not is_folder and resolved.suffix.casefold() in blocked:
+            if not is_folder and resolved.suffix.casefold() in BLOCKED_FILE_EXTENSIONS:
                 return False, 'Executable files, scripts and shortcuts must use registered application commands.'
             if os.name != 'nt':
                 return False, 'Opening local search results requires Windows.'

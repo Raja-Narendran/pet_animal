@@ -14,6 +14,7 @@ from .memory import MemoryService
 from .memory.service import normalize as normalize_memory
 from .shortcuts import APPLICATION_NAMES, ApplicationShortcut, match_shortcuts
 from .file_search import FileSearchSession
+from .workflows import WorkflowService
 from ..services.file_search import FileSearchService, FileSearchResponse, local_path
 from ..config.settings import settings
 from ..services.windows_launcher import WindowsLauncher
@@ -70,7 +71,7 @@ class ApplicationCore:
         self.listeners = []
         self._memory_confirmations = {}
         version = self.db.execute('PRAGMA user_version').fetchone()[0]
-        if version > 6:
+        if version > 7:
             raise ValueError('This database requires a newer Pet Animal version.')
         if version == 0:
             migration = settings.BASE_DIR / 'src/database/migrations/001_initial.sql'
@@ -104,17 +105,26 @@ class ApplicationCore:
         if version < 6:
             migration = settings.BASE_DIR / "src/database/migrations/006_file_open_history.sql"
             self.db.executescript("BEGIN;\n" + migration.read_text(encoding="utf-8-sig") + "\nCOMMIT;")
+        if version < 7:
+            migration = settings.BASE_DIR / "src/database/migrations/007_workflows.sql"
+            self.db.executescript("BEGIN;\n" + migration.read_text(encoding="utf-8-sig") + "\nCOMMIT;")
+        self.workflows = WorkflowService(self)
+        self._routine_creation = None
         self._seed()
         self.memory_service = MemoryService(self.db, changed=self.changed)
         self.memory_retriever = self.memory_service.retriever
         self.memory_resolver = MemoryResolver(self.memory_retriever)
         if isinstance(self.launcher, WindowsLauncher):
             self.launcher.registered_application_lookup = self.get_registered_application
+        self.workflows.recover_interrupted()
         self._refresh_application_aliases()
         self.file_session = FileSearchSession(record_open=self._record_file_open)
         self.file_search = file_search if file_search is not None else self.create_file_search_service()
 
     def close(self):
+        if self.workflows.active:
+            self.workflows.active.cancel()
+            self.workflows.finish()
         self.file_session.clear()
         self.memory_service.close_session()
         self.db.close()
@@ -252,6 +262,9 @@ class ApplicationCore:
 
     def _validate_command_action(self, action, target, connection=None):
         connection = connection or self.db
+        if action == "routine" and isinstance(target, str):
+            if connection.execute("SELECT id FROM routines WHERE id=?", (target,)).fetchone() or (connection is self.db and target == self._routine_creation):
+                return
         if action == 'application' and isinstance(target, str) and connection.execute(
                 'SELECT id FROM registered_applications WHERE id=?', (target,)).fetchone():
             return
@@ -412,6 +425,8 @@ class ApplicationCore:
         self._validate_command_action(action, target)
         if not isinstance(phrases, list) or not 1 <= len(phrases) <= 30:
             raise ValueError('Enter 1–30 phrases.')
+        if action == "routine" and any(not normalize_input(p).valid or normalize_input(p).negated or p.strip().startswith("@") for p in phrases):
+            raise ValueError("Routine phrases must be usable exact commands without negation or shortcuts.")
         normalized = [normalize(text(p, 'Phrase', 200)) for p in phrases]
         if len(set(normalized)) != len(normalized):
             raise ValueError('Duplicate phrases in this command.')
@@ -431,11 +446,21 @@ class ApplicationCore:
             self.db.execute('INSERT INTO command_phrases VALUES (?,?,?,?,?)', (identifier(), command_id, phrase.strip(), normalized_phrase, stamp))
 
     def save_command(self, name, action, target, phrases, enabled=True, command_id=None):
+        routine = self.rows("SELECT id FROM routines WHERE command_id=?", (command_id,))
+        if routine:
+            self.workflows.ensure_idle(routine[0]["id"])
+            if action != "routine" or target != routine[0]["id"]:
+                raise ValueError("Edit this routine in Workflows.")
+        elif action == "routine":
+            raise ValueError("Create routine commands in Workflows.")
         with self.db:
             self._write_command(command_id or identifier(), name, action, target, phrases, enabled)
         self.changed()
 
     def delete_command(self, command_id):
+        routine = self.rows("SELECT id FROM routines WHERE command_id=?", (command_id,))
+        if routine:
+            self.workflows.ensure_idle(routine[0]["id"])
         with self.db:
             self.db.execute('DELETE FROM commands WHERE id=?', (command_id,))
         self.changed()
@@ -542,6 +567,8 @@ class ApplicationCore:
         if not found:
             return None
         record = found[0]
+        if record['action_type'] == 'routine' and reason != MatchReason.EXACT_PHRASE:
+            return None
         intent = self.intent_resolver.command_intent(record)
         return InterpretationResult(bool(record['enabled']), intent, record['id'],
                                     reason if record['enabled'] else MatchReason.DISABLED_COMMAND,
@@ -624,6 +651,8 @@ class ApplicationCore:
             self.file_session.clear()
             return dict(success=False, message=self.interpretation_message(interpretation), pet_state='error')
         intent = interpretation.intent if interpretation.matched else None
+        if intent and intent.intent == IntentType.RUN_ROUTINE:
+            return dict(success=True, message="Starting routine…", pet_state="working", routine_id=intent.target, routine_phrase=normalize(phrase))
         if intent and intent.intent == IntentType.FILE_SEARCH:
             if intent.action in ('FIND', 'FIND_AND_OPEN'):
                 if not valid_query(intent.query):
@@ -808,7 +837,9 @@ class ApplicationCore:
         return records
 
     def clear_history(self):
+        self.workflows.ensure_idle()
         with self.db:
+            self.db.execute('DELETE FROM workflow_runs')
             self.db.execute('DELETE FROM command_history')
         self.changed()
 
@@ -917,7 +948,7 @@ class ApplicationCore:
         for key in ('launch_pet', 'start_minimized', 'tray', 'notifications'):
             if type(config[key]) is not bool:
                 raise ValueError('Invalid setting: ' + key)
-        if config['theme'] not in ('light', 'dark') or config['page'] not in ('Dashboard', 'Memory', 'Commands', 'Pet Studio', 'Activity', 'Settings'):
+        if config['theme'] not in ('light', 'dark') or config['page'] not in ('Dashboard', 'Memory', 'Commands', 'Workflows', 'Pet Studio', 'Activity', 'Settings'):
             raise ValueError('Invalid theme or page.')
         if config.get('voice_mode') not in ('english', 'multilingual'):
             raise ValueError('Invalid voice mode.')
@@ -938,9 +969,11 @@ class ApplicationCore:
     def export_configuration(self):
         return dict(version=1, settings=self.app_settings(), commands=self.commands(), profiles=self.profiles(),
                     registered_applications=[asdict(app) for app in self.list_registered_applications()],
-                    file_search=self.file_search_settings())
+                    file_search=self.file_search_settings(),
+                    routines=[{k: r[k] for k in ("id", "command_id", "name", "phrases", "steps", "enabled")} for r in self.workflows.list()])
 
     def import_configuration(self, payload):
+        self.workflows.ensure_idle()
         if not isinstance(payload, dict) or payload.get('version') != 1:
             raise ValueError('Invalid configuration export.')
         settings_payload = dict(payload.get('settings') or {})
@@ -974,8 +1007,27 @@ class ApplicationCore:
                      int(bool(registration['enabled']) and status == ValidationStatus.VALID),
                      int(status != ValidationStatus.VALID), stamp, stamp))
                 self._write_application_aliases(new_id, registration['aliases'])
+            routines = payload.get('routines', [])
+            if not isinstance(routines, list) or len(routines) > 500:
+                raise ValueError('Invalid routine records.')
+            routine_commands = {c['id']: c for c in commands if c['action_type'] == 'routine'}
+            if len(routine_commands) != len(routines):
+                raise ValueError('Routine command links do not match.')
+            seen = set()
+            for routine in routines:
+                if not isinstance(routine, dict) or routine.get('command_id') not in routine_commands or routine.get('id') in seen:
+                    raise ValueError('Invalid or duplicate routine link.')
+                seen.add(routine['id'])
+                command = routine_commands.pop(routine['command_id'])
+                if command['target'] != routine['id'] or command['name'] != routine['name'] or command['phrases'] != routine['phrases']:
+                    raise ValueError('Routine command metadata does not match.')
+                steps = routine['steps']
+                self.workflows.validate_steps(steps)
+                steps = [dict(step, value=remap.get(step['value'], step['value'])) if step['type'] == 'application' else step for step in steps]
+                self.workflows._save(routine['name'], routine['phrases'], steps, False, imported=True)
             for command in commands:
-                self._write_command(identifier(), command['name'], command['action_type'], remap.get(command['target'], command['target']), command['phrases'], bool(command['enabled']))
+                if command['action_type'] != 'routine':
+                    self._write_command(identifier(), command['name'], command['action_type'], remap.get(command['target'], command['target']), command['phrases'], bool(command['enabled']))
             for profile in profiles:
                 self._write_profile(identifier(), profile['name'], profile['selected_asset_id'], profile['config'], bool(profile['is_active']))
             for key, value in payload['settings'].items():
@@ -997,6 +1049,7 @@ class ApplicationCore:
         return path
 
     def restore(self, source):
+        self.workflows.ensure_idle()
         source = Path(source).resolve()
         if not source.is_file() or source == self.path.resolve() or source.stat().st_size > 100 * 1024 * 1024:
             raise ValueError('Choose a separate SQLite backup under 100 MB.')
@@ -1011,7 +1064,7 @@ class ApplicationCore:
             candidate.execute('PRAGMA foreign_keys=ON')
             candidate.execute('PRAGMA trusted_schema=OFF')
             version = candidate.execute('PRAGMA user_version').fetchone()[0]
-            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or version not in (1, 2, 3, 4, 5, 6) or candidate.execute('PRAGMA foreign_key_check').fetchall():
+            if candidate.execute('PRAGMA integrity_check').fetchone()[0] != 'ok' or version not in (1, 2, 3, 4, 5, 6, 7) or candidate.execute('PRAGMA foreign_key_check').fetchall():
                 raise ValueError('Invalid or incompatible backup.')
             if version == 1:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/002_registered_applications.sql').read_text(encoding='utf-8-sig'))
@@ -1023,6 +1076,8 @@ class ApplicationCore:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/005_remove_activity_patterns.sql').read_text(encoding='utf-8-sig'))
             if version < 6:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/006_file_open_history.sql').read_text(encoding='utf-8-sig'))
+            if version < 7:
+                candidate.executescript((settings.BASE_DIR / 'src/database/migrations/007_workflows.sql').read_text(encoding='utf-8-sig'))
             for row in candidate.execute('SELECT path, opened FROM file_open_history'):
                 from ..services.file_search import is_local_path
                 if not is_local_path(row[0]) or not isinstance(row[1], (float, int)) or not 0 < row[1] < float('inf'):
@@ -1049,6 +1104,12 @@ class ApplicationCore:
                             raise ValueError('Command references an unknown application.')
                         continue
                 self._validate_command_action(row[0], target, candidate)
+            for row in candidate.execute('SELECT r.*,c.action_type,c.action_config FROM routines r JOIN commands c ON c.id=r.command_id'):
+                if row['action_type'] != 'routine' or json.loads(row['action_config']) != {'target': row['id']}:
+                    raise ValueError('Invalid routine command link.')
+                self.workflows.validate_steps(json.loads(row['steps']), connection=candidate)
+            if candidate.execute("SELECT count(*) FROM commands c WHERE c.action_type='routine' AND NOT EXISTS(SELECT 1 FROM routines r WHERE r.command_id=c.id)").fetchone()[0]:
+                raise ValueError('Unlinked routine command.')
             for row in candidate.execute('SELECT config FROM pet_settings'):
                 self.validate_pet(json.loads(row[0]))
             if candidate.execute('SELECT count(*) FROM pet_profiles WHERE is_active=1').fetchone()[0] != 1:
@@ -1072,6 +1133,7 @@ class ApplicationCore:
             self.backup()  # Recovery snapshot before replacing the live database.
             candidate.commit()
             candidate.backup(self.db)
+            self.workflows.recover_interrupted()
             self.memory_service.cleanup_session(startup=True)
             self.file_session.clear()
             self.file_search = self.create_file_search_service()

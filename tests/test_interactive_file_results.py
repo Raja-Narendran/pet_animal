@@ -116,12 +116,14 @@ def test_history_persists_restart_and_version_five_backup_migrates(core, tmp_pat
     assert restarted.file_open_records()[path] > 0
     restarted.close()
     with sqlite3.connect(backup) as db:
+        for table in ('workflow_step_runs', 'workflow_runs', 'routines'):
+            db.execute('DROP TABLE ' + table)
         db.execute('DROP TABLE file_open_history')
         db.execute('PRAGMA user_version=5')
     before = backup.read_bytes()
     core.restore(backup)
     assert not core.file_open_records()
-    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 6
+    assert core.db.execute('PRAGMA user_version').fetchone()[0] == 7
     assert backup.read_bytes() == before
 
 

@@ -242,7 +242,7 @@ Pet Animal uses a pinned [faster-whisper small](https://huggingface.co/Systran/f
 
 ## Native Manager Window
 
-The Manager Window (`ManagerWindow`) provides a native desktop interface with six specialized administration pages built with Figma-inspired design tokens:
+The Manager Window (`ManagerWindow`) provides a native desktop interface with seven specialized administration pages built with Figma-inspired design tokens:
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
@@ -581,7 +581,7 @@ All runtime data is stored locally in `%LOCALAPPDATA%\PetAnimal`:
 ```text
 %LOCALAPPDATA%\PetAnimal\
 ├── database\
-│   └── petanimal.db         # Primary SQLite 3 database (WAL mode, foreign keys, user_version 6)
+│   └── petanimal.db         # Primary SQLite 3 database (WAL mode, foreign keys, user_version 7)
 ├── pets\
 │   └── imported\            # User-imported PNG sprite sheets (<uuid>.png)
 ├── backups\                 # Online SQLite backup snapshots (petanimal-YYYYMMDD-HHMMSS-*.db)
@@ -667,7 +667,7 @@ Run targeted test modules during focused development:
 ```
 
 ### Headless Diagnostic Self-Test
-The application features a built-in offscreen verification mode (`--self-test`) that creates a temporary isolated environment to verify database migrations, memory persistence, backup/restore, software discovery, all six Manager pages, live profile switching, speech engines, and clean shutdown without displaying GUI windows:
+The application features a built-in offscreen verification mode (`--self-test`) that creates a temporary isolated environment to verify database migrations, memory persistence, backup/restore, software discovery, all seven Manager pages, live profile switching, speech engines, and clean shutdown without displaying GUI windows:
 
 ```powershell
 .venv\Scripts\python.exe src/main.py --self-test build/source-verification.json
@@ -689,7 +689,7 @@ Expected result:
     "launchable": 71
   },
   "personal_memory_engine": {
-    "schema_version": 6,
+    "schema_version": 7,
     "preference_resolution": true,
     "aliases_tags_relationships": true,
     "access_tracking": true,
@@ -700,7 +700,7 @@ Expected result:
     "SQLite migration",
     "memory persistence",
     "backup restore",
-    "six Manager pages",
+    "seven Manager pages",
     "live profile switching",
     "independent Manager closing",
     "offline English and Tamil engines, models, native decoder, and voice command routing",
@@ -744,3 +744,48 @@ Start-Process -Wait -WindowStyle Hidden -FilePath .\dist\v2\Pet-Animal-2.0-Setup
 ## License
 
 Pet Animal 2.0 is licensed under the MIT License. See [LICENSE](LICENSE) for details. Multilingual Whisper components are licensed under the Apache 2.0 License (see [assets/speech/WHISPER-LICENSE.txt](assets/speech/WHISPER-LICENSE.txt)).
+
+
+## Workflows / Routine Builder
+
+Open **Manager → Workflows** to build an approved routine on a connected linear canvas.
+Use **New routine** or the **Start Work template**, give it a name and 1–30 trigger
+phrases, then add/reorder steps and configure their settings. Saving approves the
+configured targets. Run from the Manager or type an exact saved phrase in the pet.
+
+Supported steps:
+
+- **Open App**: builtin allowlisted apps or enabled approved registered apps.
+- **Open URL**: enter a website such as `example.com` or a full `https://` URL. The builder
+  adds HTTPS to ordinary website addresses before validating and saving them. URLs open
+  in the default browser. Opening Chrome
+  as a separate step does not change the default browser.
+- **Open Folder**: an existing absolute folder on a local fixed disk; network shares,
+  links, and offline placeholders are rejected.
+- **Open File**: choose an existing local file (for example a PDF, spreadsheet, image, or
+  document). Windows opens it using its default associated app. Executables, scripts,
+  shortcuts, network paths, links, and offline placeholders remain blocked.
+- **Wait**: 0–90 seconds, without freezing the Manager.
+- **Display Message**: 1–100 characters of plain text in the pet bubble and run output.
+
+Routines support 1–50 steps and stop at the first failed step. **Stop** cancels waits
+and prevents subsequent actions; applications already opened remain open. Only one
+routine runs at a time. Closing the Manager leaves a routine running; quitting cancels
+it. A successful Open step means its launch request was accepted, so insert Wait steps
+when an external application needs time to load. The final message is preserved;
+otherwise the pet says “〈Routine name〉 ready.”
+
+Drag cards or use Move Up/Down to reorder. Save before Run. Save confirmation and validation
+errors appear immediately below the Save/Run/Stop controls; failed saves preserve your draft. Unsaved drafts survive
+live refreshes and theme changes, with Save/Discard/Cancel when leaving the editor.
+Routine commands appear in Commands with **Edit in Workflows**. Activity includes one
+entry per run and a **Routine run details** view with individual step outcomes.
+
+Routines and outcomes are stored in SQLite schema version 7 and included in backups.
+Configuration imports remap approved application IDs and keep imported routines disabled
+for review. Missing targets are flagged. Run history and logs do not store step URLs,
+folder paths, message contents, or raw launcher errors. The existing launcher may make
+OS/browser launch requests; the workflow engine performs no HTTP calls itself.
+
+Scheduling, branching, loops, nested routines, arbitrary scripts, executable arguments,
+and browser automation are outside this release.

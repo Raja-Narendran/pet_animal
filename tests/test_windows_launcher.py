@@ -104,3 +104,15 @@ def test_play_youtube_delegation(mock_play):
     assert success is True
     assert "Playing 'shape of you'" in msg
     mock_play.assert_called_once_with("shape of you")
+
+
+def test_application_failure_does_not_log_raw_error(caplog, monkeypatch):
+    from src.services.windows_launcher import WindowsLauncher
+    import subprocess
+    def fail(*args, **kwargs):
+        raise OSError('private-raw-launcher-error')
+    monkeypatch.setattr(subprocess, 'Popen', fail)
+    success, message = WindowsLauncher().open_application('notepad')
+    assert not success
+    assert 'private-raw-launcher-error' not in message
+    assert 'private-raw-launcher-error' not in caplog.text
