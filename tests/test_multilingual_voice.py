@@ -128,8 +128,8 @@ def test_decoder_keeps_tamil_and_english_without_translation(monkeypatch):
 
 @pytest.fixture
 def mixed_worker(monkeypatch):
-    monkeypatch.setattr(voice.settings, 'VOICE_MULTILINGUAL', True)
-    monkeypatch.setattr(voice, 'SPEECH_AVAILABLE', True)
+    monkeypatch.setattr(voice.settings, 'VOICE_MODE', 'multilingual')
+    monkeypatch.setattr(voice, 'is_speech_available', lambda mode=None: True)
     monkeypatch.setattr(voice, 'get_multilingual_model', lambda: object())
     transcriber = MagicMock(return_value='Shape of You பாட்டு play பண்ணு')
     monkeypatch.setattr(voice, 'transcribe_multilingual', transcriber)
@@ -188,7 +188,7 @@ def test_mixed_worker_silence_never_decode(qtbot, mixed_worker):
 
 
 def test_real_multilingual_decoder_retains_english_command():
-    if not voice.SPEECH_AVAILABLE:
+    if not voice.is_speech_available('multilingual'):
         pytest.skip('Prepare the offline multilingual model first.')
     pcm, rate = paused_audio()
     assert voice.get_multilingual_model().model.is_multilingual
@@ -199,7 +199,7 @@ def test_real_multilingual_decoder_retains_english_command():
 
 
 def test_real_multilingual_decoder_transcribes_tamil_without_translation():
-    if not voice.SPEECH_AVAILABLE:
+    if not voice.is_speech_available('multilingual'):
         pytest.skip('Prepare the offline multilingual model first.')
     with wave.open(str(Path(__file__).parent / 'fixtures/tamil-fleurs.wav'), 'rb') as audio:
         pcm = audio.readframes(audio.getnframes())

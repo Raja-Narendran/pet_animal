@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QMouseEvent
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPoint
 from .voice_button import VoiceButton
 from .audio_waveform import AudioWaveform
-from ..services.voice_input import VoiceInputWorker, SPEECH_AVAILABLE
+from ..services.voice_input import VoiceInputWorker, is_speech_available
 from ..config.settings import settings
 from ..utils.logger import get_logger
 
@@ -48,6 +48,7 @@ class CommandBoxWidget(QWidget):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._voice_active = False
+        self._voice_preserve_focus = False
         self._voice_cancelled = False
         self._voice_error_message = None
         self._press_pos: Optional[QPoint] = None
@@ -123,7 +124,7 @@ class CommandBoxWidget(QWidget):
 
         # Voice input button
         self.voice_button = VoiceButton(self)
-        if not SPEECH_AVAILABLE:
+        if not is_speech_available():
             self.voice_button.set_unavailable()
         else:
             self.voice_button.voice_toggled.connect(self._start_voice_input)
@@ -272,16 +273,18 @@ class CommandBoxWidget(QWidget):
 
     # --- Voice input handlers ---
 
-    def _start_voice_input(self) -> None:
-        if not settings.VOICE_ENABLED or not SPEECH_AVAILABLE or self._voice_active:
-            return
+    def _start_voice_input(self, hold_to_talk=False) -> bool:
+        if not settings.VOICE_ENABLED or not is_speech_available() or self._voice_active:
+            return False
         if self._voice_worker and self._voice_worker.isRunning():
-            return
+            return False
         self._voice_cancelled = False
         self._voice_error_message = None
+        self._voice_preserve_focus = hold_to_talk
         self._set_voice_mode(True)
         self.voice_status.setText('Starting…')
-        self._voice_worker = VoiceInputWorker(parent=self)
+        self._voice_worker = (VoiceInputWorker(parent=self, hold_to_talk=True)
+                              if hold_to_talk else VoiceInputWorker(parent=self))
         self._voice_worker.listening_started.connect(self._on_voice_listening)
         self._voice_worker.audio_level_changed.connect(self.waveform.set_level)
         self._voice_worker.partial_recognized.connect(self._on_voice_partial)
@@ -291,6 +294,7 @@ class CommandBoxWidget(QWidget):
         # Restore idle only when QThread has truly finished, so retry cannot race it.
         self._voice_worker.finished.connect(self._on_voice_stopped)
         self._voice_worker.start()
+        return True
 
     def _set_voice_mode(self, active):
         self._voice_active = active
@@ -304,6 +308,8 @@ class CommandBoxWidget(QWidget):
         self.update()
 
     def _on_voice_listening(self):
+        if self.sender() is not None and self.sender() is not self._voice_worker:
+            return
         if self._voice_cancelled:
             return
         self.voice_status.setText('Listening…')
@@ -311,6 +317,8 @@ class CommandBoxWidget(QWidget):
         self.voice_started.emit()
 
     def _on_voice_partial(self, text):
+        if self.sender() is not None and self.sender() is not self._voice_worker:
+            return
         if self._voice_cancelled:
             return
         self.voice_status.setText(self.voice_status.fontMetrics().elidedText(text, Qt.TextElideMode.ElideRight, 92))
@@ -318,6 +326,8 @@ class CommandBoxWidget(QWidget):
         self.voice_bar.setAccessibleDescription(text)
 
     def _on_voice_processing(self):
+        if self.sender() is not None and self.sender() is not self._voice_worker:
+            return
         if self._voice_cancelled:
             return
         self.voice_status.setText('Recognizing…')
@@ -331,19 +341,26 @@ class CommandBoxWidget(QWidget):
             self._voice_worker.cancel()
 
     def _on_voice_recognized(self, text):
+        if self.sender() is not None and self.sender() is not self._voice_worker:
+            return
         if self._voice_cancelled:
             return
-        self.input_field.setText(text)
+        if not self._voice_preserve_focus:
+            self.input_field.setText(text)
         # Dedicated signal keeps spoken alias matching out of typed command paths.
         self.voice_command_submitted.emit(text)
 
     def _on_voice_error(self, error_msg):
+        if self.sender() is not None and self.sender() is not self._voice_worker:
+            return
         if self._voice_cancelled:
             return
         self._voice_error_message = error_msg
         self.voice_error.emit(error_msg)
 
     def _on_voice_stopped(self):
+        if self.sender() is not None and self.sender() is not self._voice_worker:
+            return
         self._set_voice_mode(False)
         self.cancel_voice_button.setEnabled(True)
         self.voice_button.set_idle()
@@ -355,7 +372,12 @@ class CommandBoxWidget(QWidget):
         self._voice_worker = None
         if worker:
             worker.deleteLater()
-        self.input_field.setFocus()
+        self.voice_status.setToolTip('')
+        self.voice_bar.setAccessibleDescription('')
+        self.voice_status.setText('Starting…')
+        if not self._voice_preserve_focus:
+            self.input_field.setFocus()
+        self._voice_preserve_focus = False
 
     def _restore_placeholder(self):
         self.input_field.setPlaceholderText('Hi!!')

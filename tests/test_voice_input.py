@@ -113,8 +113,8 @@ class TestSoundDeviceMicrophone:
 def streaming_worker(monkeypatch):
     import json
     from src.services.voice_input import VoiceInputWorker
-    monkeypatch.setattr('src.services.voice_input.settings.VOICE_MULTILINGUAL', False)
-    monkeypatch.setattr('src.services.voice_input.SPEECH_AVAILABLE', True)
+    monkeypatch.setattr('src.services.voice_input.settings.VOICE_MODE', 'english')
+    monkeypatch.setattr('src.services.voice_input.is_speech_available', lambda mode=None: True)
     monkeypatch.setattr('src.services.voice_input.get_voice_model', lambda: object())
     recognizer = MagicMock()
     recognizer.AcceptWaveform.return_value = True
@@ -146,7 +146,7 @@ def test_voice_stream_result_and_signal_order(qtbot, streaming_worker):
 
 def test_voice_unavailable_still_stops(qtbot, monkeypatch):
     from src.services.voice_input import VoiceInputWorker
-    monkeypatch.setattr('src.services.voice_input.SPEECH_AVAILABLE', False)
+    monkeypatch.setattr('src.services.voice_input.is_speech_available', lambda mode=None: False)
     worker = VoiceInputWorker()
     with qtbot.waitSignal(worker.listening_stopped):
         with qtbot.waitSignal(worker.error_occurred) as error:
@@ -222,8 +222,8 @@ def test_real_offline_model_transcribes_reported_command(monkeypatch):
     import json
     import wave
     from pathlib import Path
-    from src.services.voice_input import SPEECH_AVAILABLE, create_recognizer
-    if not SPEECH_AVAILABLE:
+    from src.services.voice_input import is_speech_available, create_recognizer
+    if not is_speech_available('english'):
         pytest.skip('Prepare the bundled model to run native speech verification.')
     monkeypatch.setattr('urllib.request.urlopen', lambda *args, **kwargs: pytest.fail('Recognition must stay offline'))
     with wave.open(str(Path(__file__).parent / 'fixtures/play-shape-of-you.wav'), 'rb') as audio:
@@ -241,8 +241,8 @@ def test_real_offline_command_survives_one_second_mid_sentence_pause():
     import json
     import wave
     from pathlib import Path
-    from src.services.voice_input import SPEECH_AVAILABLE, create_recognizer
-    if not SPEECH_AVAILABLE:
+    from src.services.voice_input import is_speech_available, create_recognizer
+    if not is_speech_available('english'):
         pytest.skip('Prepare the bundled model to run native speech verification.')
     with wave.open(str(Path(__file__).parent / 'fixtures/play-pause-shape-of-you.wav'), 'rb') as audio:
         speech = audio.readframes(audio.getnframes())
@@ -272,3 +272,104 @@ def test_recording_limit_does_not_submit_an_incomplete_command(qtbot, streaming_
     assert not results
     assert 'recording limit' in errors[0]
     recognizer.FinalResult.assert_not_called()
+
+
+# Hold-to-talk uses the same recognizers, but release replaces silence endpoints.
+def test_hold_release_preserves_all_english_segments(qtbot, streaming_worker):
+    worker, rec, source = streaming_worker
+    worker.hold_to_talk = True
+    worker.timeout = 0.001
+    rec.AcceptWaveform.side_effect = [True, False, True]
+    rec.Result.side_effect = ['{"text":"open","result":[{"conf":0.9}]}',
+                              '{"text":"chrome","result":[{"conf":0.9}]}']
+    rec.PartialResult.return_value = '{"partial":""}'
+    rec.FinalResult.return_value = '{"text":"please","result":[{"conf":0.9}]}'
+    reads = []
+    def read(size):
+        reads.append(size)
+        if len(reads) == 3:
+            worker.finish_recording()
+        return bytes(2048)
+    source.stream.read.side_effect = read
+    results = []
+    worker.speech_recognized.connect(results.append)
+    worker.run()
+    assert results == ['open chrome please']
+    assert len(reads) == 3
+
+
+def test_hold_release_during_warmup_never_opens_microphone(qtbot, streaming_worker, monkeypatch):
+    worker, rec, source = streaming_worker
+    worker.hold_to_talk = True
+    monkeypatch.setattr('src.services.voice_input.get_voice_model', worker.finish_recording)
+    worker.run()
+    worker._get_microphone.assert_not_called()
+
+
+@pytest.mark.parametrize('cancel', [False, True])
+def test_hold_empty_or_cancelled_does_not_submit(qtbot, streaming_worker, cancel):
+    worker, rec, source = streaming_worker
+    worker.hold_to_talk = True
+    rec.AcceptWaveform.return_value = False
+    rec.PartialResult.return_value = '{"partial":""}'
+    rec.FinalResult.return_value = '{"text":""}'
+    def read(size):
+        worker.cancel() if cancel else worker.finish_recording()
+        return bytes(2048)
+    source.stream.read.side_effect = read
+    results = []
+    worker.speech_recognized.connect(results.append)
+    worker.run()
+    assert not results
+
+
+def test_hold_duration_limit_does_not_submit(qtbot, streaming_worker):
+    worker, rec, source = streaming_worker
+    worker.hold_to_talk = True
+    worker.phrase_time_limit = 0.1
+    errors, results = [], []
+    worker.error_occurred.connect(errors.append)
+    worker.speech_recognized.connect(results.append)
+    worker.run()
+    assert 'recording limit' in errors[0]
+    assert not results
+
+
+def test_hold_low_confidence_does_not_submit(qtbot, streaming_worker):
+    worker, rec, source = streaming_worker
+    worker.hold_to_talk = True
+    rec.Result.return_value = '{"text":"wrong","result":[{"conf":0.1}]}'
+    rec.FinalResult.return_value = '{"text":""}'
+    source.stream.read.side_effect = lambda size: (worker.finish_recording() or bytes(2048))
+    results, errors = [], []
+    worker.speech_recognized.connect(results.append)
+    worker.error_occurred.connect(errors.append)
+    worker.run()
+    assert not results and 'clearly' in errors[0]
+
+
+def test_multilingual_hold_ignores_silence_and_finishes_on_release(qtbot, streaming_worker, monkeypatch):
+    worker, rec, source = streaming_worker
+    worker.hold_to_talk = True
+    worker.timeout = 0.001
+    worker.mode = 'multilingual'
+    monkeypatch.setattr('src.services.voice_input.is_speech_available', lambda mode=None: True)
+    monkeypatch.setattr('src.services.voice_input.get_multilingual_model', lambda: object())
+    endpoint = MagicMock(started=True)
+    endpoint.feed.return_value = True
+    monkeypatch.setattr('src.services.voice_input.SpeechEndpoint', lambda silence: endpoint)
+    transcribe = MagicMock(return_value='open chrome')
+    monkeypatch.setattr('src.services.voice_input.transcribe_multilingual', transcribe)
+    reads = []
+    def read(size):
+        reads.append(size)
+        if len(reads) == 3:
+            worker.finish_recording()
+        return bytes(2048)
+    source.stream.read.side_effect = read
+    results = []
+    worker.speech_recognized.connect(results.append)
+    worker.run()
+    assert results == ['open chrome']
+    assert len(transcribe.call_args.args[0]) == 6144
+    assert len(reads) == 3

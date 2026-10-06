@@ -51,7 +51,7 @@ def text(value, label, limit=1000):
 
 DEFAULT_PET = dict(size=240, x=None, y=None, always_on_top=True, animations=True,
                    chat_width=320, text_size=13, background='#18181b', radius=20, opacity=0.94)
-DEFAULT_APP = dict(launch_pet=True, start_minimized=False, tray=True, notifications=True, theme='light', page='Dashboard', voice_mode='english')
+DEFAULT_APP = dict(launch_pet=True, start_minimized=False, tray=True, notifications=True, theme='light', page='Dashboard', voice_mode='google', google_voice_language='en-IN', voice_hotkey_enabled=False)
 
 
 class ApplicationCore:
@@ -941,25 +941,33 @@ class ApplicationCore:
     def validate_settings(config):
         if not isinstance(config, dict):
             raise ValueError('Invalid application settings.')
+        if 'voice_hotkey_enabled' not in config:
+            config = dict(config, voice_hotkey_enabled=False)
         if 'voice_mode' not in config:
-            config = dict(config, voice_mode='english')
+            config = dict(config, voice_mode='google')
+        config = dict(config, google_voice_language=config.get('google_voice_language', 'en-IN'))
         if set(config) != set(DEFAULT_APP):
             raise ValueError('Invalid application settings.')
-        for key in ('launch_pet', 'start_minimized', 'tray', 'notifications'):
+        for key in ('launch_pet', 'start_minimized', 'tray', 'notifications', 'voice_hotkey_enabled'):
             if type(config[key]) is not bool:
                 raise ValueError('Invalid setting: ' + key)
         if config['theme'] not in ('light', 'dark') or config['page'] not in ('Dashboard', 'Memory', 'Commands', 'Workflows', 'Pet Studio', 'Activity', 'Settings'):
             raise ValueError('Invalid theme or page.')
-        if config.get('voice_mode') not in ('english', 'multilingual'):
+        if config.get('voice_mode') not in ('english', 'multilingual', 'google'):
             raise ValueError('Invalid voice mode.')
+        if config['google_voice_language'] not in ('en-IN', 'ta-IN'):
+            raise ValueError('Invalid Google voice language.')
         if config['start_minimized'] and not config['tray']:
             raise ValueError('Start minimized requires the system tray.')
 
     def save_settings(self, config):
         if not isinstance(config, dict):
             raise ValueError('Invalid application settings.')
+        if 'voice_hotkey_enabled' not in config:
+            config = dict(config, voice_hotkey_enabled=False)
         if 'voice_mode' not in config:
-            config = dict(config, voice_mode='english')
+            config = dict(config, voice_mode='google')
+        config = dict(config, google_voice_language=config.get('google_voice_language', 'en-IN'))
         self.validate_settings(config)
         with self.db:
             for key, value in config.items():
@@ -977,8 +985,10 @@ class ApplicationCore:
         if not isinstance(payload, dict) or payload.get('version') != 1:
             raise ValueError('Invalid configuration export.')
         settings_payload = dict(payload.get('settings') or {})
+        settings_payload.setdefault('voice_hotkey_enabled', False)
         if 'voice_mode' not in settings_payload:
-            settings_payload['voice_mode'] = 'english'
+            settings_payload['voice_mode'] = 'google'
+        settings_payload.setdefault('google_voice_language', 'en-IN')
         self.validate_settings(settings_payload)
         search_config = payload.get('file_search', dict(roots=[], everything_executable=''))
         self.validate_file_search_settings(search_config)

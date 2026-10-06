@@ -313,8 +313,10 @@ def test_voice_mode_settings_toggle_and_validation(core, qapp, monkeypatch):
     monkeypatch.setattr(settings, 'STATE_FILE', core.root / 'state.json')
     app = ApplicationController(core)
     try:
-        # Default is english -> VOICE_MULTILINGUAL is False (Vosk streaming)
-        assert core.app_settings()['voice_mode'] == 'english'
+        # New settings default to Google; the legacy multilingual flag stays false.
+        assert core.app_settings()['voice_mode'] == 'google'
+        assert settings.VOICE_MODE == 'google'
+        assert settings.GOOGLE_VOICE_LANGUAGE == 'en-IN'
         assert settings.VOICE_MULTILINGUAL is False
 
         # Switch to multilingual -> Whisper
@@ -332,7 +334,7 @@ def test_voice_mode_settings_toggle_and_validation(core, qapp, monkeypatch):
         with pytest.raises(ValueError, match='Invalid voice mode'):
             core.save_settings(dict(cfg, voice_mode='invalid_mode'))
 
-        # Legacy config without voice_mode is accepted and defaults to english
+        # Legacy config without voice_mode is accepted and defaults to Google.
         legacy = dict(cfg)
         del legacy['voice_mode']
         core.validate_settings(legacy)
@@ -344,3 +346,97 @@ def test_voice_mode_settings_toggle_and_validation(core, qapp, monkeypatch):
         qapp.aboutToQuit.disconnect(app.shutdown)
 
 
+
+
+def test_voice_hotkey_settings_legacy_export_backup(core):
+    assert core.app_settings()['voice_hotkey_enabled'] is False
+    core.save_settings(dict(core.app_settings(), voice_hotkey_enabled=True))
+    assert core.export_configuration()['settings']['voice_hotkey_enabled'] is True
+    backup = core.backup()
+    legacy = core.app_settings()
+    del legacy['voice_hotkey_enabled']
+    core.save_settings(legacy)
+    assert core.app_settings()['voice_hotkey_enabled'] is False
+    core.restore(backup)
+    assert core.app_settings()['voice_hotkey_enabled'] is True
+    # An older database does not contain this key; restore uses the default.
+    with sqlite3.connect(backup) as db:
+        db.execute("DELETE FROM app_settings WHERE key='voice_hotkey_enabled'")
+    core.restore(backup)
+    assert core.app_settings()['voice_hotkey_enabled'] is False
+    payload = core.export_configuration()
+    payload['commands'] = []
+    payload['routines'] = []
+    del payload['settings']['voice_hotkey_enabled']
+    core.import_configuration(payload)
+    assert core.app_settings()['voice_hotkey_enabled'] is False
+
+
+@pytest.mark.parametrize('value', [1, 0, 'true', None])
+def test_voice_hotkey_setting_requires_bool(core, value):
+    with pytest.raises(ValueError, match='voice_hotkey_enabled'):
+        core.save_settings(dict(core.app_settings(), voice_hotkey_enabled=value))
+
+
+def test_google_voice_settings_compatibility(core):
+    config = core.app_settings()
+    assert config['voice_mode'] == 'google'
+    assert config['google_voice_language'] == 'en-IN'
+    for mode in ('google', 'english', 'multilingual'):
+        core.save_settings(dict(config, voice_mode=mode, google_voice_language='ta-IN'))
+        assert core.app_settings()['voice_mode'] == mode
+        assert core.app_settings()['google_voice_language'] == 'ta-IN'
+    with pytest.raises(ValueError, match='Google voice language'):
+        core.save_settings(dict(config, google_voice_language='invalid'))
+    legacy = dict(config, voice_mode='english')
+    del legacy['google_voice_language']
+    core.save_settings(legacy)
+    assert core.app_settings()['voice_mode'] == 'english'
+    assert core.app_settings()['google_voice_language'] == 'en-IN'
+    payload = core.export_configuration()
+    del payload['settings']['google_voice_language']
+    payload['commands'] = []  # Import is append-only; avoid duplicating seeded phrases.
+    core.import_configuration(payload)
+    assert core.app_settings()['voice_mode'] == 'english'
+    assert core.app_settings()['google_voice_language'] == 'en-IN'
+    core.db.execute("DELETE FROM app_settings WHERE key='google_voice_language'")
+    core.db.commit()
+    backup = core.backup()
+    core.save_settings(dict(config, google_voice_language='ta-IN'))
+    core.restore(backup)
+    assert core.app_settings()['voice_mode'] == 'english'
+    assert core.app_settings()['google_voice_language'] == 'en-IN'
+
+
+def test_google_settings_selector_and_saved_language(core, qapp, monkeypatch):
+    from PyQt6.QtWidgets import QComboBox, QLabel, QPushButton
+    from src.config.settings import settings
+    monkeypatch.setattr(settings, 'STATE_FILE', core.root / 'state.json')
+    controller = ApplicationController(core)
+    try:
+        from src.app.manager_window import PAGES
+        controller.manager.navigation.setCurrentRow(PAGES.index('Settings'))
+        combos = controller.manager.findChildren(QComboBox)
+        engine = next(c for c in combos if c.findData('google') >= 0)
+        language = next(c for c in combos if c.findData('ta-IN') >= 0)
+        notice = next(w for w in controller.manager.findChildren(QLabel)
+                      if w.text() == 'Sends recorded audio to Google; requires internet')
+        assert engine.currentData() == 'google'
+        assert not language.isHidden() and not notice.isHidden()
+        engine.setCurrentIndex(engine.findData('english'))
+        assert language.isHidden() and notice.isHidden()
+        engine.setCurrentIndex(engine.findData('google'))
+        language.setCurrentIndex(language.findData('ta-IN'))
+        save = next(b for b in controller.manager.findChildren(QPushButton) if b.text() == 'Save preferences')
+        save.click()
+        assert core.app_settings()['voice_mode'] == 'google'
+        assert core.app_settings()['google_voice_language'] == 'ta-IN'
+        assert settings.GOOGLE_VOICE_LANGUAGE == 'ta-IN'
+    finally:
+        qapp.aboutToQuit.disconnect(controller.shutdown)
+        core.listeners.clear()
+        controller.manager.software_state.shutdown()
+        controller.pet.pet.anim_timer.stop()
+        controller.pet.tray_icon.hide()
+        controller.pet.hide()
+        controller.manager.hide()

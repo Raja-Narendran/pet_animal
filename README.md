@@ -1,8 +1,8 @@
 # Pet Animal 2.0
 
-An offline, local-first, privacy-focused Windows desktop companion featuring a transparent floating Husky pet, an interactive command bar with `@` application autocomplete and `/` local file search, bundled multilingual speech recognition (English + Tamil + Tanglish), persistent personal memory with Windows DPAPI encryption, software discovery, and a full-featured 6-page native Manager window.
+A local-first Windows desktop companion with optional online speech recognition featuring a transparent floating Husky pet, an interactive command bar with `@` application autocomplete and `/` local file search, bundled multilingual speech recognition (English + Tamil + Tanglish), persistent personal memory with Windows DPAPI encryption, software discovery, and a full-featured 6-page native Manager window.
 
-Pet Animal 2.0 runs natively on Windows with Python and PyQt6. Both windows share a single headless application core and local SQLite database. The entire application operates completely offline without external HTTP backends, cloud telemetry, or remote AI APIs.
+Pet Animal 2.0 runs natively on Windows with Python and PyQt6. Both windows share a single headless application core and local SQLite database. Storage and local speech engines operate offline. The default Google speech option sends recorded audio to Google over HTTPS; select Vosk or Whisper for offline voice recognition. No cloud telemetry is collected.
 
 ---
 
@@ -102,7 +102,7 @@ Pet Animal 2.0 enforces a strict two-tier architecture separating the domain log
 - **Headless Domain (`src/core/application.py`)**: Central domain controller containing pure Python business logic, SQLite query routines, schema migrations, and listener callbacks.
 - **Application Controller (`src/app/controller.py`)**: Coordinates window lifecycles, manages desktop positioning, synchronizes theme/appearance mutations, and routes commands.
 - **Presentation Windows (`src/app/`)**: `PetWindow` (the desktop companion) and `ManagerWindow` (the management studio).
-- **Execution Services (`src/services/`)**: `WindowsLauncher` for allowlisted application and URL dispatch, `VoiceInputWorker` for offline speech transcription, and `SoftwareDiscoveryService` for Start Menu and registry scanning.
+- **Execution Services (`src/services/`)**: `WindowsLauncher` for allowlisted application and URL dispatch, `VoiceInputWorker` for local or optional Google speech transcription, and `SoftwareDiscoveryService` for Start Menu and registry scanning.
 
 ---
 
@@ -348,8 +348,10 @@ Application preferences and database maintenance:
   - `Show system tray icon`: Toggles system tray integration.
   - `Enable desktop notifications`: Enables balloon notifications for background events.
 - **Voice Recognition Mode**:
+  - `Google Web Speech (Online)`: Default for new settings; English (India) or Tamil (India). Sends recorded audio to Google and requires internet.
   - `Offline English (Vosk)`: Lightweight CPU speech recognition with streaming partial words.
   - `Multilingual Offline (Whisper Small)`: Bundled neural model for English, Tamil, and Tanglish.
+- **Voice Activation Shortcut**: Enable `Ctrl + Windows` in Settings and click **Save preferences**. Hold both keys to speak from any application; release either key to recognize and submit through the existing voice command flow. The pet appears automatically. The shortcut is disabled by default, supports either left/right key, and works only while Pet Animal is running. Wait for the Listening indicator before speaking while a local model warms up. The microphone button keeps its usual automatic silence detection.
 - **Local File Search**:
   - `Search Folders`: Configure custom directory roots (one per line, up to 32 paths) to restrict filesystem searches to chosen folders and workspace trees.
   - `Everything CLI (es.exe)`: Configure custom path to Voidtools Everything command-line executable (`es.exe`) or rely on automatic detection.
@@ -789,3 +791,18 @@ OS/browser launch requests; the workflow engine performs no HTTP calls itself.
 
 Scheduling, branching, loops, nested routines, arbitrary scripts, executable arguments,
 and browser automation are outside this release.
+
+### Voice typing into another application
+
+Enable **Ctrl + Windows** in Settings. Click the destination text field, hold Ctrl + Windows, wait for Listening, and say **type how are you question mark**. Release the shortcut and all modifier keys to insert **How are you?**. The pet stays out of focus; insertion never presses Enter or sends a message. This feature uses the keyboard shortcut only.
+
+Speak **question mark**, **exclamation mark**, **comma**, or **full stop** for punctuation. The first letter is capitalized; other text, including Tamil with the multilingual engine, is preserved. Selected text is replaced as normal typing would replace it. Keep the target field focused until insertion finishes. Focus changes cancel typing. Dictation is not saved in command history or logs and does not use the clipboard. Text is limited to 4096 characters; control characters are rejected. Elevated applications and some custom fields may reject Windows Unicode input. Partial insertion is reported and never retried automatically.
+
+
+### Google Web Speech (Online)
+
+Google is the default voice engine for new settings. Existing saved Vosk or Whisper choices are preserved. In Settings, choose **Google Web Speech (Online)** and select **English (India)** or **Tamil (India)**, then save preferences. Recorded audio is sent to Google over HTTPS and requires internet. Each request uses one selected language; use local Whisper for mixed Tamil/English speech.
+
+The microphone button and Ctrl + Windows hold-to-talk shortcut share the existing waveform, WebRTC VAD, recording limits, and command routing. Google requests time out after 10 seconds and are never retried automatically or used as a fallback from a local engine. Audio remains in memory locally; transcripts and service responses are excluded from diagnostic logs. Local Vosk and Whisper remain offline and never upload audio.
+
+SpeechRecognition's standard Google integration uses a shared key intended for personal/testing use, which Google may revoke. No Google Cloud account or API-key setting is added. Recognition after cancellation is discarded; an already submitted request may continue until its timeout.

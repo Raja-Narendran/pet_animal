@@ -33,7 +33,7 @@ class ControlledWorker(QObject):
 
 @pytest.fixture
 def voice_box(qtbot, monkeypatch):
-    monkeypatch.setattr('src.components.command_box.SPEECH_AVAILABLE', True)
+    monkeypatch.setattr('src.components.command_box.is_speech_available', lambda: True)
     monkeypatch.setattr('src.components.command_box.VoiceInputWorker', ControlledWorker)
     box = CommandBoxWidget()
     qtbot.addWidget(box)

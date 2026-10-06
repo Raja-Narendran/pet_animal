@@ -1,0 +1,38 @@
+{
+  "success": true,
+  "version": "2.0.0",
+  "software_discovery": {
+    "candidates": 281,
+    "launchable": 70
+  },
+  "personal_memory_engine": {
+    "schema_version": 7,
+    "preference_resolution": true,
+    "aliases_tags_relationships": true,
+    "access_tracking": true,
+    "dpapi_safe_export": true,
+    "session_restore_cleanup": true
+  },
+  "workflows": {
+    "schema_version": 7,
+    "ordered_execution": true,
+    "asynchronous_wait": true,
+    "private_history": true,
+    "backup_restore": true,
+    "default_app_file_step": true
+  },
+  "checks": [
+    "SQLite migration",
+    "memory persistence",
+    "backup restore",
+    "seven Manager pages",
+    "approved workflows, asynchronous ordered execution and private step history",
+    "live profile switching",
+    "independent Manager closing",
+    "offline English and Tamil engines, models, native decoder, and voice command routing",
+    "smart command resolution, negation and parse-only Manager tester",
+    "software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal",
+    "Google English/Tamil configuration, bundled FLAC encoder, and mocked HTTPS recognition",
+    "quit cleanup"
+  ]
+}

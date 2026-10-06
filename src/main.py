@@ -127,9 +127,22 @@ def run_self_test(app):
             app.processEvents()
             assert controller.pet.isVisible() and not controller.manager.isVisible()
             assert not controller.pet.command_box.voice_button.isHidden()
-            from src.services.voice_input import SPEECH_AVAILABLE
-            assert SPEECH_AVAILABLE, 'Local speech engine or audio capture dependency is unavailable.'
+            from src.services.voice_input import is_speech_available
+            assert is_speech_available('english') and is_speech_available('multilingual'), 'Local speech engine or audio capture dependency is unavailable.'
             from src.services.voice_input import create_recognizer
+            from unittest.mock import patch
+            from src.services.voice_input import VoiceInputWorker, sr
+            assert is_speech_available('google'), 'Google capture dependencies are unavailable.'
+            assert sr.AudioData(bytes(32000), 16000, 2).get_flac_data().startswith(b'fLaC')
+            google_worker = VoiceInputWorker()
+            google_worker.google_language = 'ta-IN'
+            google_results = []
+            google_worker.speech_recognized.connect(google_results.append)
+            with patch.object(sr.Recognizer, 'recognize_google', return_value='open chrome') as google:
+                google_worker._transcribe_google(bytes(32000), 16000)
+                assert google.call_args.kwargs['language'] == 'ta-IN'
+                assert google.call_args.kwargs['endpoint'].startswith('https://')
+            assert google_results == ['open chrome']
             recognizer = create_recognizer()
             recognizer.AcceptWaveform(bytes(32000))
             assert 'text' in json.loads(recognizer.FinalResult())
@@ -194,7 +207,7 @@ def run_self_test(app):
                 core.launcher = original_launcher
             controller.quit()
             assert not controller.pet.tray_icon.isVisible()
-            result.update(success=True, checks=['SQLite migration', 'memory persistence', 'backup restore', 'seven Manager pages', 'approved workflows, asynchronous ordered execution and private step history', 'live profile switching', 'independent Manager closing', 'offline English and Tamil engines, models, native decoder, and voice command routing', 'smart command resolution, negation and parse-only Manager tester', 'software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal', 'quit cleanup'])
+            result.update(success=True, checks=['SQLite migration', 'memory persistence', 'backup restore', 'seven Manager pages', 'approved workflows, asynchronous ordered execution and private step history', 'live profile switching', 'independent Manager closing', 'offline English and Tamil engines, models, native decoder, and voice command routing', 'smart command resolution, negation and parse-only Manager tester', 'software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal', 'Google English/Tamil configuration, bundled FLAC encoder, and mocked HTTPS recognition', 'quit cleanup'])
         except Exception as error:
             result['error'] = str(error)
         finally:

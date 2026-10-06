@@ -6,8 +6,11 @@ from .pet_window import PetWindow
 from .manager_window import ManagerWindow
 from ..utils.sprite import SpriteManager
 from ..config.settings import settings
+from ..services.voice_input import is_speech_available
 from ..services.file_search import FileSearchResponse, FileSearchService
 import threading
+import time
+from ..services.windows_typing import WindowsTypingService, parse_dictation
 
 
 class BrowserWorker(QThread):
@@ -71,10 +74,21 @@ class WorkflowActionWorker(QThread):
 
 class ApplicationController(QObject):
     workflow_updated = pyqtSignal(object)
+    voice_hotkey_status_changed = pyqtSignal(str)
 
     def __init__(self, core, parent=None):
         super().__init__(parent)
         self.core = core
+        self._voice_hotkey = None
+        self._voice_hotkey_enabled = False
+        self._hotkey_voice_worker = None
+        self._typing_service = WindowsTypingService()
+        self._typing_target = None
+        self._pending_dictation = None
+        self._dictation_timer = QTimer(self)
+        self._dictation_timer.setInterval(20)
+        self._dictation_timer.timeout.connect(self._try_dictation)
+        self.voice_hotkey_status = 'Voice shortcut is disabled.'
         self._workflow_worker = None
         self._workflow_timer = QTimer(self)
         self._workflow_timer.setSingleShot(True)
@@ -86,6 +100,7 @@ class ApplicationController(QObject):
         self._shortcut_dismissed = False
         self._shortcut_submitting = False
         self.pet = PetWindow()
+        self.pet.installEventFilter(self)
         self.pet.command_box.command_submitted.disconnect()
         self.pet.command_box.command_submitted.connect(self.submit)
         self.pet.command_box.voice_command_submitted.disconnect()
@@ -175,8 +190,91 @@ class ApplicationController(QObject):
         self.pet._update_pet_anchor()
         app_settings = self.core.app_settings()
         self.pet.tray_icon.setVisible(app_settings['tray'])
-        settings.VOICE_MULTILINGUAL = (app_settings.get('voice_mode') == 'multilingual')
+        settings.VOICE_MODE = app_settings.get('voice_mode', 'google')
+        settings.GOOGLE_VOICE_LANGUAGE = app_settings.get('google_voice_language', 'en-IN')
+        settings.VOICE_MULTILINGUAL = settings.VOICE_MODE == 'multilingual'
+        voice_button = self.pet.command_box.voice_button
+        if is_speech_available():
+            voice_button.setEnabled(True)
+            voice_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            if not self.pet.command_box._voice_active:
+                voice_button.set_idle()
+        else:
+            voice_button.set_unavailable()
+        self._configure_voice_hotkey(app_settings.get('voice_hotkey_enabled', False))
         self._refresh_application_suggestions()
+
+    def _set_voice_hotkey_status(self, message):
+        if not self._shutting_down:
+            self.voice_hotkey_status = message
+            self.voice_hotkey_status_changed.emit(message)
+
+    def _configure_voice_hotkey(self, enabled):
+        if self._shutting_down or enabled == self._voice_hotkey_enabled:
+            return
+        self._voice_hotkey_enabled = enabled
+        if self._voice_hotkey is not None:
+            self._cancel_hotkey_voice()
+            self._voice_hotkey.stop()
+            self._voice_hotkey.deleteLater()
+            self._voice_hotkey = None
+        if enabled:
+            from ..services.voice_hotkey import VoiceHotkeyListener
+            listener = VoiceHotkeyListener(self)
+            self._voice_hotkey = listener
+            listener.activated.connect(self._start_hotkey_voice)
+            listener.released.connect(self._finish_hotkey_voice)
+            listener.status_changed.connect(lambda message: self._set_voice_hotkey_status(message)
+                if self._voice_hotkey is listener else None)
+            self._set_voice_hotkey_status('Starting voice shortcut...')
+            listener.start()
+        else:
+            self._set_voice_hotkey_status('Voice shortcut is disabled.')
+
+    def _start_hotkey_voice(self):
+        if self.sender() is not None and self.sender() is not self._voice_hotkey:
+            return
+        if self._shutting_down or not self._voice_hotkey_enabled:
+            return
+        box = self.pet.command_box
+        if self._pending_dictation or box._voice_active or (box._voice_worker and box._voice_worker.isRunning()):
+            return
+        self._typing_target = self._typing_service.capture_target()
+        self.pet.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.show_pet()
+        self.pet.command_box.show()
+        self.pet._reanchor_pet()
+        self.pet.response_bubble.dismiss_suggestions()
+        self.pet.response_bubble.dismiss_files()
+        if box._start_voice_input(hold_to_talk=True):
+            worker = box._voice_worker
+            self._hotkey_voice_worker = worker
+            worker.finished.connect(lambda: self._clear_hotkey_voice(worker))
+        else:
+            self._clear_dictation()
+            self.pet._on_voice_error('Voice input is unavailable. Check microphone and selected engine dependencies.')
+
+    def _clear_hotkey_voice(self, worker):
+        if self._hotkey_voice_worker is worker:
+            self._hotkey_voice_worker = None
+            if self._pending_dictation is None:
+                self._clear_dictation()
+
+    def _finish_hotkey_voice(self):
+        if self.sender() is not None and self.sender() is not self._voice_hotkey:
+            return
+        if self._shutting_down or not self._voice_hotkey_enabled:
+            return
+        worker = self._hotkey_voice_worker
+        if worker is not None and worker is self.pet.command_box._voice_worker:
+            worker.finish_recording()
+
+    def _cancel_hotkey_voice(self):
+        self._clear_dictation()
+        worker = self._hotkey_voice_worker
+        if worker is not None and worker is self.pet.command_box._voice_worker:
+            self.pet.command_box._cancel_voice_input()
+        self._hotkey_voice_worker = None
 
     def _shortcut_text_changed(self, _text):
         self._shortcut_dismissed = False
@@ -197,6 +295,8 @@ class ApplicationController(QObject):
     def eventFilter(self, watched, event):
         # Qt can dispatch events during QObject construction and after shutdown.
         pet = getattr(self, 'pet', None)
+        if pet is not None and not self._shutting_down and watched is pet and event.type() == QEvent.Type.Hide:
+            self._cancel_hotkey_voice()
         if pet is not None and not self._shutting_down and watched is pet.command_box.input_field:
             bubble = pet.response_bubble
             if event.type() == QEvent.Type.Hide:
@@ -426,9 +526,52 @@ class ApplicationController(QObject):
             self.pet.response_bubble.show_message(result['message'])
         self.pet.pet.set_state(result['pet_state'], temporary_ms=3000)
 
+    def _clear_dictation(self):
+        self._dictation_timer.stop()
+        self._pending_dictation = None
+        self._typing_target = None
+        self.pet.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
+
+    def _try_dictation(self):
+        pending = self._pending_dictation
+        if pending is None:
+            return
+        target, text, deadline = pending
+        if self._shutting_down or not self._voice_hotkey_enabled:
+            self._clear_dictation()
+            return
+        if not self._typing_service.target_is_current(target):
+            success, message = False, 'Voice typing cancelled: the selected field changed.'
+        elif self._typing_service.modifiers_released():
+            success, message = self._typing_service.insert_text(target, text)
+        elif time.monotonic() < deadline:
+            return
+        else:
+            success, message = False, 'Voice typing cancelled: release all modifier keys.'
+        self._clear_dictation()
+        self._show_result(dict(success=success, message=message, pet_state='success' if success else 'error'))
+
     def submit_voice(self, phrase):
         if self._shutting_down:
             return
+        worker = self.pet.command_box._voice_worker
+        if worker is not None and worker is self._hotkey_voice_worker:
+            if self.pet.command_box._voice_cancelled or not self._voice_hotkey_enabled:
+                self._clear_dictation()
+                return
+            text = parse_dictation(phrase)
+            if text is not None:
+                self.pet.command_box.input_field.clear()
+                if self._pending_dictation is not None:
+                    return
+                if not text:
+                    self._clear_dictation()
+                    self._show_result(dict(success=False, message='Say type followed by the text to insert.', pet_state='idle'))
+                    return
+                self._pending_dictation = (self._typing_target, text, time.monotonic() + 2)
+                self._dictation_timer.start()
+                self._try_dictation()
+                return
         result = self.execute(phrase)
         self._show_result(result)
         # Retain failed transcription for correction instead of silently discarding it.
@@ -477,6 +620,7 @@ class ApplicationController(QObject):
         self.manager.refresh()
 
     def hide_pet(self):
+        self._cancel_hotkey_voice()
         self.save_position()
         self.pet.hide()
         # Always leave a path to reopen the companion.
@@ -495,7 +639,10 @@ class ApplicationController(QObject):
         if self._shutting_down:
             return
         self.stop_routine()
+        self._cancel_hotkey_voice()
         self._shutting_down = True
+        if self._voice_hotkey is not None:
+            self._voice_hotkey.stop()
         if self._workflow_worker is not None:
             self._workflow_worker.wait()
         for worker in list(self._file_workers):

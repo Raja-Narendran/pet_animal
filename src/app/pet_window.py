@@ -345,8 +345,8 @@ class PetWindow(QWidget):
         menu.addAction(toggle_cmd_action)
 
         # Voice input shortcut in context menu
-        from ..services.voice_input import SPEECH_AVAILABLE
-        if SPEECH_AVAILABLE and settings.VOICE_ENABLED:
+        from ..services.voice_input import is_speech_available
+        if is_speech_available() and settings.VOICE_ENABLED:
             voice_action = QAction("🎤 Voice Command", self)
             voice_action.triggered.connect(self._trigger_voice_from_menu)
             menu.addAction(voice_action)

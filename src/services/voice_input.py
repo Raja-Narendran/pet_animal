@@ -2,7 +2,7 @@
 
 Multilingual Whisper handles Tamil/English speech after a language-independent
 silence detector. The optional English Vosk engine streams partial words.
-Models are bundled; runtime never downloads models or uploads microphone audio.
+Local models are bundled. Only the explicitly selected Google engine uploads audio.
 """
 import queue as _queue
 import json
@@ -49,23 +49,32 @@ except (ImportError, OSError):
 try:
     import numpy as np
     import webrtcvad
-    from faster_whisper import WhisperModel
-    _MULTILINGUAL_AVAILABLE = True
+    _VAD_AVAILABLE = True
 except (ImportError, OSError):
-    np = webrtcvad = WhisperModel = None
+    np = webrtcvad = None
+    _VAD_AVAILABLE = False
+
+try:
+    from faster_whisper import WhisperModel
+    _MULTILINGUAL_AVAILABLE = _VAD_AVAILABLE
+except (ImportError, OSError):
+    WhisperModel = None
     _MULTILINGUAL_AVAILABLE = False
 
-def is_speech_available():
+
+def is_speech_available(mode=None):
+    mode = mode or settings.VOICE_MODE
     if not (_SR_AVAILABLE and _SD_AVAILABLE):
         return False
-    if settings.VOICE_MULTILINGUAL:
+    if mode == 'google':
+        return _VAD_AVAILABLE
+    if mode == 'multilingual':
         return _MULTILINGUAL_AVAILABLE and settings.VOICE_MULTILINGUAL_MODEL_DIR.is_dir()
-    return _VOSK_AVAILABLE and settings.VOICE_MODEL_DIR.is_dir()
+    return mode == 'english' and _VOSK_AVAILABLE and settings.VOICE_MODEL_DIR.is_dir()
 
 
-SPEECH_AVAILABLE = _SR_AVAILABLE and _SD_AVAILABLE and (
-    (_MULTILINGUAL_AVAILABLE and settings.VOICE_MULTILINGUAL_MODEL_DIR.is_dir())
-    if settings.VOICE_MULTILINGUAL else (_VOSK_AVAILABLE and settings.VOICE_MODEL_DIR.is_dir()))
+# Compatibility for legacy imports; runtime entry points use the dynamic check.
+SPEECH_AVAILABLE = is_speech_available()
 _multilingual_model = None
 _multilingual_lock = threading.Lock()
 _model = None
@@ -299,11 +308,19 @@ class VoiceInputWorker(QThread):
     listening_started = pyqtSignal()
     listening_stopped = pyqtSignal()
 
-    def __init__(self, timeout=None, phrase_time_limit=None, parent=None):
+    def __init__(self, timeout=None, phrase_time_limit=None, parent=None, hold_to_talk=False):
         super().__init__(parent)
         self._cancel_event = threading.Event()
+        self._finish_event = threading.Event()
+        self.hold_to_talk = hold_to_talk
+        self.mode = settings.VOICE_MODE
+        self.google_language = settings.GOOGLE_VOICE_LANGUAGE
         self.timeout = timeout if timeout is not None else settings.VOICE_TIMEOUT_S
         self.phrase_time_limit = phrase_time_limit if phrase_time_limit is not None else settings.VOICE_PHRASE_LIMIT_S
+
+    def finish_recording(self):
+        """End capture while retaining audio for recognition."""
+        self._finish_event.set()
 
     def cancel(self):
         self._cancel_event.set()
@@ -317,9 +334,10 @@ class VoiceInputWorker(QThread):
                                      level_callback=self.audio_level_changed.emit,
                                      cancelled=self._is_cancelled)
 
-    def _run_multilingual(self):
-        get_multilingual_model()  # Finish model warmup before opening the microphone.
-        if self._is_cancelled():
+    def _run_buffered(self):
+        if self.mode == 'multilingual':
+            get_multilingual_model()  # Warm up before opening the microphone.
+        if self._is_cancelled() or self._finish_event.is_set():
             return
         chunks = []
         endpoint = SpeechEndpoint(settings.VOICE_SILENCE_S)
@@ -327,42 +345,75 @@ class VoiceInputWorker(QThread):
             self.listening_started.emit()
             elapsed = 0.0
             speech_start = None
-            while not self._is_cancelled():
+            while not self._is_cancelled() and not self._finish_event.is_set():
                 data = source.stream.read(source.CHUNK)
                 elapsed += len(data) / (source.SAMPLE_RATE * source.SAMPLE_WIDTH)
                 chunks.append(data)
                 finished = endpoint.feed(data, source.SAMPLE_RATE)
                 if endpoint.started and speech_start is None:
                     speech_start = elapsed
-                if speech_start is not None and elapsed - speech_start >= self.phrase_time_limit:
+                if (elapsed >= self.phrase_time_limit if self.hold_to_talk else
+                        speech_start is not None and elapsed - speech_start >= self.phrase_time_limit):
                     self.error_occurred.emit('Voice input reached the recording limit. Please try a shorter command.')
                     return
-                if finished:
+                if finished and not self.hold_to_talk:
                     break
-                if speech_start is None and elapsed >= self.timeout:
+                if not self.hold_to_talk and speech_start is None and elapsed >= self.timeout:
                     self.error_occurred.emit('No clear speech detected. Check your microphone and try again.')
                     return
             if self._is_cancelled():
                 return
             sample_rate = source.SAMPLE_RATE
+        if not chunks:
+            return
+        if self.mode == 'google' and not endpoint.started:
+            self.error_occurred.emit('No clear speech detected. Check your microphone and try again.')
+            return
         self.processing_started.emit()
+        if self._is_cancelled():
+            return
+        if self.mode == 'google':
+            self._transcribe_google(b''.join(chunks), sample_rate)
+            return
         text = transcribe_multilingual(b''.join(chunks), sample_rate, self._is_cancelled)
         if not text:
             self.error_occurred.emit("Didn't catch that clearly. Please try again.")
         elif not self._is_cancelled():
             self.speech_recognized.emit(text)
 
+    def _transcribe_google(self, data, sample_rate):
+        recognizer = sr.Recognizer()
+        recognizer.operation_timeout = 10
+        try:
+            text = recognizer.recognize_google(
+                sr.AudioData(data, sample_rate, 2), language=self.google_language,
+                endpoint='https://www.google.com/speech-api/v2/recognize').strip()
+            if not self._is_cancelled():
+                if text:
+                    self.speech_recognized.emit(text)
+                else:
+                    self.error_occurred.emit("Didn't catch that clearly. Please try again.")
+        except sr.UnknownValueError:
+            if not self._is_cancelled():
+                self.error_occurred.emit("Didn't catch that clearly. Please try again.")
+        except TimeoutError:
+            if not self._is_cancelled():
+                self.error_occurred.emit('Google speech recognition timed out. Please try again.')
+        except sr.RequestError:
+            if not self._is_cancelled():
+                self.error_occurred.emit('Could not reach Google speech recognition. Check your internet connection and try again.')
+
     def run(self):
         try:
-            if not is_speech_available() or not SPEECH_AVAILABLE:
-                self.error_occurred.emit('Local speech recognition is not available. Check the bundled model and microphone dependencies.')
+            if not is_speech_available(self.mode):
+                self.error_occurred.emit('Speech recognition is not available. Check the selected engine and microphone dependencies.')
                 return
-            if settings.VOICE_MULTILINGUAL:
-                self._run_multilingual()
+            if self.mode in ('multilingual', 'google'):
+                self._run_buffered()
                 return
             # Warm up the model before opening the microphone. No spoken prefix is discarded.
             get_voice_model()
-            if self._is_cancelled():
+            if self._is_cancelled() or self._finish_event.is_set():
                 return
             with self._get_microphone() as source:
                 recognizer = create_recognizer(source.SAMPLE_RATE)
@@ -371,15 +422,19 @@ class VoiceInputWorker(QThread):
                 speech_start = None
                 last_partial = ''
                 result = None
+                segments = []
                 # Audio duration bounds capture even when silence never triggers an endpoint.
-                while not self._is_cancelled():
+                while not self._is_cancelled() and not self._finish_event.is_set():
                     data = source.stream.read(source.CHUNK)
                     elapsed += len(data) / (source.SAMPLE_RATE * source.SAMPLE_WIDTH)
                     if recognizer.AcceptWaveform(data):
                         candidate = json.loads(recognizer.Result())
                         if candidate.get('text', '').strip():
-                            result = candidate
-                            break
+                            if self.hold_to_talk:
+                                segments.append(candidate)
+                            else:
+                                result = candidate
+                                break
                     else:
                         partial = json.loads(recognizer.PartialResult()).get('partial', '')
                         if partial:
@@ -388,15 +443,20 @@ class VoiceInputWorker(QThread):
                             if partial != last_partial:
                                 self.partial_recognized.emit(partial)
                                 last_partial = partial
-                    if speech_start is None and elapsed >= self.timeout:
+                    if not self.hold_to_talk and speech_start is None and elapsed >= self.timeout:
                         break
-                    if speech_start is not None and elapsed - speech_start >= self.phrase_time_limit:
+                    if (elapsed >= self.phrase_time_limit if self.hold_to_talk else
+                        speech_start is not None and elapsed - speech_start >= self.phrase_time_limit):
                         self.error_occurred.emit('Voice input reached the recording limit. Please try a shorter command.')
                         return
                 if self._is_cancelled():
                     return
                 self.processing_started.emit()
                 result = result or json.loads(recognizer.FinalResult())
+                if self.hold_to_talk:
+                    segments.append(result)
+                    result = {'text': ' '.join(part.get('text', '').strip() for part in segments).strip(),
+                              'result': [word for part in segments for word in part.get('result', [])]}
             text = result.get('text', '').strip()
             if not text:
                 self.error_occurred.emit('No clear speech detected. Check your microphone and try again.')
@@ -413,9 +473,9 @@ class VoiceInputWorker(QThread):
             if not self._is_cancelled():
                 self.error_occurred.emit('Could not access microphone or local model. Check Windows input settings.')
         except Exception:
-            logger.exception('Local voice recognition failed.')
+            logger.warning('Voice recognition failed for engine %s.', self.mode)
             if not self._is_cancelled():
-                self.error_occurred.emit('Local speech recognition failed. Please try again.')
+                self.error_occurred.emit('Speech recognition failed. Please try again.')
         finally:
             self.audio_level_changed.emit(0.0)
             self.listening_stopped.emit()

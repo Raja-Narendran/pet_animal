@@ -1,13 +1,18 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_dynamic_libs
+import speech_recognition
+
+flac_encoder = Path(speech_recognition.__file__).parent / 'flac-win32.exe'
+if not flac_encoder.is_file():
+    raise RuntimeError('SpeechRecognition Windows FLAC encoder is missing.')
 
 
 a = Analysis(
     ['src/main.py'],
     pathex=[],
     binaries=collect_dynamic_libs('vosk'),
-    datas=[('petimage', 'petimage'), ('assets/ui', 'assets/ui'),
+    datas=[(str(flac_encoder), 'speech_recognition'), ('petimage', 'petimage'), ('assets/ui', 'assets/ui'),
            ('assets/speech', 'assets/speech'),
            ('src/database/migrations', 'src/database/migrations')],
     hiddenimports=[],

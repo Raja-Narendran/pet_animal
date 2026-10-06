@@ -176,9 +176,10 @@ def test_sidebar_and_general_settings(controller, qapp):
     manager.refresh()
     qapp.processEvents()
 
-    # In Settings, the General card should only have theme, no QCheckBox widgets
+    # Settings exposes the optional voice hotkey alongside theme/recognition.
     checkboxes = manager.findChildren(QCheckBox)
-    assert len(checkboxes) == 0, f"Expected 0 QCheckBox in Settings, found {len(checkboxes)}"
+    assert [box.text() for box in checkboxes] == ['Enable Ctrl + Windows for voice input']
+    assert not checkboxes[0].isChecked()
 
     # Theme combobox should exist
     theme_box = next((c for c in manager.findChildren(QComboBox) if c.count() == 2 and 'light' in [c.itemText(i) for i in range(c.count())]), None)
