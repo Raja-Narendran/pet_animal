@@ -22,7 +22,8 @@ class BrowserWorker(QThread):
 
     def run(self):
         try:
-            handler = self.launcher.search_web if self.action == 'search' else self.launcher.play_youtube
+            handler = getattr(self.launcher, {'search': 'search_web', 'music': 'play_youtube',
+                                             'url': 'open_registered_url'}[self.action])
             success, message = handler(self.target)
         except Exception:
             success, message = False, 'The browser action could not be executed.'

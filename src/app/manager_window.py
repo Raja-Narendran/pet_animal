@@ -287,7 +287,7 @@ class ManagerWindow(QMainWindow):
         self.memory_scopes.addItem('Temporary', 'TEMPORARY')
         self.memory_scopes.setCurrentIndex(max(0, self.memory_scopes.findData(self.memory_scope)))
         self.memory_states = QComboBox()
-        for title, state in [('All states', None), ('Enabled', 'enabled'), ('Disabled', 'disabled'), ('Sensitive', 'sensitive'), ('Expired', 'expired')]:
+        for title, state in [('All states', None), ('Enabled', 'enabled'), ('Disabled', 'disabled')]:
             self.memory_states.addItem(title, state)
         self.memory_states.setCurrentIndex(max(0, self.memory_states.findData(self.memory_state)))
         self.memory_usage = QComboBox()
@@ -336,8 +336,7 @@ class ManagerWindow(QMainWindow):
         state = self.memory_state
         self.memory_records = self.core.memory_service.list_memories(
             self.memory_query, self.memory_category,
-            memory_scope=self.memory_scope, enabled=True if state == 'enabled' else False if state == 'disabled' else None,
-            sensitive=True if state == 'sensitive' else None, expired=True if state == 'expired' else None,
+            memory_scope=self.memory_scope, state=state,
             include_expired=True, sort=self.memory_sort)
         self.memory_table.blockSignals(True)
         self.memory_table.setRowCount(len(self.memory_records))
@@ -848,7 +847,7 @@ class ManagerWindow(QMainWindow):
     def page_commands(self):
         self.heading('Commands', 'Registered phrases and natural requests for your enabled actions.', [button('New command', self.edit_command, True, 'zap')])
         records = self.core.commands()
-        table = self.table(['Command', 'Phrases', 'Action', 'Enabled'], [(r['name'], ' · '.join(r['phrases']), r['target'], 'Yes' if r['enabled'] else 'No') for r in records])
+        table = self.table(['Command', 'Phrases', 'Enabled'], [(r['name'], ' · '.join(r['phrases']), 'Yes' if r['enabled'] else 'No') for r in records])
         self.content_layout.addWidget(table)
         def selected(callback):
             if table.currentRow() >= 0:

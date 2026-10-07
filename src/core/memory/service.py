@@ -153,12 +153,22 @@ class MemoryService:
         return True
 
     def list_memories(self, query='', category_id=None, memory_type=None, memory_scope=None,
-                      enabled=None, sensitive=None, include_expired=True, include_system=False, sort='updated', expired=None):
+                      enabled=None, sensitive=None, include_expired=True, include_system=False, sort='updated', expired=None,
+                      state=None):
         query = normalize(checked_text(query, 'Search', 1000, empty=True))
         if memory_type is not None:
             memory_type = MemoryType(memory_type).value
         if memory_scope is not None:
             memory_scope = MemoryScope(memory_scope).value
+        if state is not None:
+            if state == 'enabled':
+                enabled = True
+            elif state == 'disabled':
+                enabled = False
+            elif state in ('sensitive', 'expired'):
+                raise ValueError(f"Memory state '{state}' is not supported.")
+            else:
+                raise ValueError(f"Unknown memory state: {state}")
         rows = []
         for raw in self._rows(SELECT_MEMORY):
             if category_id and raw['category_id'] != category_id:

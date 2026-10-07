@@ -149,9 +149,15 @@ def test_results_pagination_and_last_page(core, tmp_path):
 def test_intervening_input_invalidates_previous_selection(core, tmp_path, cancel):
     make_file(tmp_path / 'files', 'package.xml')
     core.execute('/package.xml')
+    core.launcher.search_web.return_value = (True, 'Search opened')
     core.execute(cancel)
     assert not core.execute('Open it')['success']
-    assert not core.launcher.mock_calls
+    core.launcher.open_local_result.assert_not_called()
+    if cancel == 'unknown command':
+        core.launcher.search_web.assert_called_once_with(cancel)
+        assert len(core.launcher.mock_calls) == 1
+    else:
+        assert not core.launcher.mock_calls
 
 
 def test_confirmation_without_proposal_expiry_and_stale_worker(core, tmp_path):

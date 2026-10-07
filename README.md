@@ -332,7 +332,7 @@ A comprehensive, privacy-preserving audit log of all command executions:
 - **Columns**: Timestamp, Command Name, Trigger Phrase, Execution Status (`success` / `failed`), Error Details.
 - **Filtering**: Filter by execution status (`All`, `Success`, `Failed`), command selection, or specific local calendar date.
 - **Clear History**: Purges all execution history with user confirmation.
-- **Privacy Protections**: Unsupported inputs are logged strictly as `[unsupported command]`. Free-form search queries and song titles are logged only as `[web search]` or `[music playback]`. Password contents and memory values never enter execution history.
+- **Privacy Protections**: Unsupported inputs are logged strictly as `[unsupported command]`. Direct website addresses are logged only as `[website open]`. Free-form search queries and song titles are logged only as `[web search]` or `[music playback]`. Password contents and memory values never enter execution history.
 
 ---
 
@@ -426,6 +426,33 @@ User Input (Typed or Spoken)
   │
   └─► [12] Safe Launcher Execution (Validated WindowsLauncher or Background Worker)
 ```
+
+### Plain Text Search and Website Addresses
+
+Existing commands, memory requests, local file searches, and workflow phrases take precedence.
+Otherwise, plain text searches Google in the default browser, preserving the original query.
+
+| Input | Action |
+| :--- | :--- |
+| `weather tomorrow` | Search Google |
+| `amazon.com` | Open `https://amazon.com` |
+| `amazon.co.uk` | Open `https://amazon.co.uk` |
+| `amazon.com reviews` | Search Google |
+| `search amazon.com` | Search Google |
+| `https://docs.python.org/3/` | Open the HTTPS address |
+
+Direct opening requires the entire input to be a valid domain or HTTPS address.
+Subdomains and internationalized domain names are supported. Explicit unsupported or
+incomplete commands retain their error behavior. Google searches still require the
+Google command to be enabled. HTTPS addresses cannot contain credentials, whitespace,
+control characters, or nonstandard ports.
+
+Domain recognition uses the bundled IANA snapshot at
+`assets/domains/tlds-alpha-by-domain.txt`, obtained from
+[the IANA TLD list](https://data.iana.org/TLD/tlds-alpha-by-domain.txt).
+Refresh this file during maintenance; the app never downloads domain data or performs
+DNS checks to classify input. Search queries and direct addresses are excluded from
+persistent history and logs; direct openings appear as `[website open]` in Activity.
 
 ### Negation Veto
 Pet Animal enforces a mandatory safety veto: any command containing negation words (e.g., `do not`, `don't`, `never`, `vendam`, `koodadhu`) is immediately halted with:

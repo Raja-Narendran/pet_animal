@@ -228,8 +228,10 @@ def test_expired_filter_and_cleanup_require_confirmation(manager, monkeypatch):
     expired = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
     memory_id = create(manager, 'context.old', memory_type='CONTEXT', memory_scope='TEMPORARY', lifetime='temporary', expires_at=expired)
     create(manager, 'user.nickname', memory_type='PROFILE')
-    manager.memory_states.setCurrentText('Expired')
-    assert [r['id'] for r in manager.memory_records] == [memory_id]
+    state_options = [manager.memory_states.itemText(i) for i in range(manager.memory_states.count())]
+    assert state_options == ['All states', 'Enabled', 'Disabled']
+    assert 'Expired' not in state_options
+    assert 'Sensitive' not in state_options
     monkeypatch.setattr(QMessageBox, 'information', lambda *args: None)
     monkeypatch.setattr(QMessageBox, 'question', lambda *args: QMessageBox.StandardButton.No)
     manager.clean_expired_memories()

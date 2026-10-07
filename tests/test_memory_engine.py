@@ -382,3 +382,18 @@ def test_import_duplicate_keys_with_different_lifecycle_are_invalid(engine, chan
     with pytest.raises(ValueError):
         engine.import_memories(payload, confirm_conflicts=True)
     assert not engine.find_existing('scoped')
+
+
+def test_list_memories_state_parameter(engine):
+    active_id = save(engine, key='active.item', enabled=True)
+    disabled_id = save(engine, key='disabled.item', enabled=False)
+    assert active_id in [r['id'] for r in engine.list_memories(state='enabled')]
+    assert disabled_id not in [r['id'] for r in engine.list_memories(state='enabled')]
+    assert disabled_id in [r['id'] for r in engine.list_memories(state='disabled')]
+    assert active_id not in [r['id'] for r in engine.list_memories(state='disabled')]
+    with pytest.raises(ValueError, match="not supported"):
+        engine.list_memories(state='sensitive')
+    with pytest.raises(ValueError, match="not supported"):
+        engine.list_memories(state='expired')
+    with pytest.raises(ValueError, match="Unknown memory state"):
+        engine.list_memories(state='invalid')

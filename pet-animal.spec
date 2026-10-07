@@ -14,6 +14,7 @@ a = Analysis(
     binaries=collect_dynamic_libs('vosk'),
     datas=[(str(flac_encoder), 'speech_recognition'), ('petimage', 'petimage'), ('assets/ui', 'assets/ui'),
            ('assets/speech', 'assets/speech'),
+           ('assets/domains', 'assets/domains'),
            ('src/database/migrations', 'src/database/migrations')],
     hiddenimports=[],
     hookspath=['release/hooks'],

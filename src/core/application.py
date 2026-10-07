@@ -25,6 +25,7 @@ from ..commands.interpreter import (AUTO_EXECUTE_THRESHOLD, CommandIntent, Inter
                                     RuleBasedIntentInterpreter, IntentResolver, MemoryResolver)
 from ..commands.interpreter.normalizer import normalize_input
 from ..commands.interpreter.file_rules import file_intent, valid_query
+from ..commands.interpreter.browser_rules import browser_fallback, website_url, DIRECT_WEBSITE_SOURCE
 from ..commands.voice_phrases import normalize_mixed_voice
 from ..utils.logger import get_logger
 
@@ -617,7 +618,13 @@ class ApplicationCore:
         if registered is not None:
             return registered
         if not result.matched:
-            return result
+            if result.reason != MatchReason.UNKNOWN_INTENT:
+                return result
+            result = browser_fallback(phrase, normalized_input)
+            if not result.matched:
+                return result
+            if result.intent.source == DIRECT_WEBSITE_SOURCE:
+                return result
         if result.intent is None:
             return InterpretationResult(reason=MatchReason.UNKNOWN_INTENT)
         if result.intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_QUERY, IntentType.MEMORY_FORGET, IntentType.SHOW_HELP):
@@ -691,7 +698,24 @@ class ApplicationCore:
                 return dict(success=False, message=str(error), pet_state='error')
         if intent and intent.intent == IntentType.SHOW_HELP:
             names = [c['phrases'][0] for c in self.commands() if c['enabled']]
-            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nFiles: /<name>; find <name>; find <name> folder; open it; yes; show results; open <number>\nBrowser: search <query>; play <song> on youtube\nMemory: remember my name as <name>; save my preferred browser as <app>; what is my editor; forget my preferred browser', pet_state='idle')
+            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nFiles: /<name>; find <name>; find <name> folder; open it; yes; show results; open <number>\nBrowser: search <query>; plain text searches Google; amazon.com opens a website; play <song> on youtube\nMemory: remember my name as <name>; save my preferred browser as <app>; what is my editor; forget my preferred browser', pet_state='idle')
+        if intent and intent.intent == IntentType.OPEN_WEBSITE and intent.source == DIRECT_WEBSITE_SOURCE:
+            # Revalidate at dispatch, even if an interpreter supplies forged metadata.
+            try:
+                target = website_url(intent.target)
+                if target is None:
+                    raise ValueError('Invalid website address.')
+                self.validate_action('url', target)
+            except (ValueError, OSError):
+                return self.finish_browser_action('url', False, 'Invalid website address.')
+            if defer_browser:
+                return dict(success=True, message='Opening website…', pet_state='working',
+                            browser_action='url', browser_target=target)
+            try:
+                success, message = self.launcher.open_registered_url(target)
+            except Exception:
+                success, message = False, 'The browser action could not be executed.'
+            return self.finish_browser_action('url', success, message)
         return self._execute_registered_command(interpretation, phrase, defer_browser)
 
     def finish_file_search(self, token, intent, response):
@@ -814,16 +838,17 @@ class ApplicationCore:
         return dict(success=success, message=message, pet_state='success' if success else 'error')
 
     def finish_browser_action(self, action, success, message):
-        # Keep free-form searches and song titles out of persistent history.
+        # Keep queries, song titles and direct website addresses out of history.
+        trigger = {'search': '[web search]', 'music': '[music playback]', 'url': '[website open]'}[action]
         with self.db:
             self.db.execute('INSERT INTO command_history VALUES (?,?,?,?,?,?)',
-                            (identifier(), None, '[web search]' if action == 'search' else '[music playback]',
+                            (identifier(), None, trigger,
                              'success' if success else 'failed', '' if success else 'Browser action failed.', now()))
         self.changed()
         return dict(success=success, message=message, pet_state='success' if success else 'error')
 
     def history(self, status='', date='', command_id=None):
-        sql = '''SELECT h.*, COALESCE(c.name, CASE h.trigger_phrase WHEN '[web search]' THEN 'Web search' WHEN '[music playback]' THEN 'Music playback' ELSE 'Unsupported / deleted command' END) AS name FROM command_history h LEFT JOIN commands c ON c.id=h.command_id WHERE 1=1'''
+        sql = '''SELECT h.*, COALESCE(c.name, CASE h.trigger_phrase WHEN '[web search]' THEN 'Web search' WHEN '[music playback]' THEN 'Music playback' WHEN '[website open]' THEN 'Website open' ELSE 'Unsupported / deleted command' END) AS name FROM command_history h LEFT JOIN commands c ON c.id=h.command_id WHERE 1=1'''
         args = []
         if status:
             sql += ' AND h.execution_status=?'

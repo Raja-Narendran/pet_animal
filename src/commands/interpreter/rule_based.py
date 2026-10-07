@@ -45,6 +45,9 @@ class RuleBasedIntentInterpreter(IntentInterpreter):
             return self._match(IntentType.MEMORY_FORGET, forgotten[0], memory_type=forgotten[1])
         if local:
             return InterpretationResult(True, local, reason=MatchReason.SMART_MATCH, confidence=1.0)
+        # A longer command prefix with no payload must not match a shorter one.
+        if phrase in SEARCH_PREFIXES + MUSIC_PREFIXES:
+            return InterpretationResult()
         for kind, prefixes in ((IntentType.WEB_SEARCH, SEARCH_PREFIXES), (IntentType.PLAY_MEDIA, MUSIC_PREFIXES)):
             for prefix in prefixes:
                 if phrase.startswith(prefix + ' '):

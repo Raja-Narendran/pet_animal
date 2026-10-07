@@ -80,7 +80,9 @@ def test_crud_restart_and_shared_phrase_conflicts(core):
     assert duplicate['phrases'] == [] and not duplicate['enabled']
     core.workflows.save('Updated', ['begin work'], saved['steps'], False, rid)
     assert core.interpret('begin work').reason == MatchReason.DISABLED_COMMAND
-    assert not core.interpret('work setup').matched
+    removed = core.interpret('work setup')
+    assert removed.matched and removed.intent.intent == IntentType.WEB_SEARCH
+    assert removed.command_id != saved['command_id']
     second = ApplicationCore(core.root, MagicMock())
     try:
         assert second.workflows.get(rid)['name'] == 'Updated'
