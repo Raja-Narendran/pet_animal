@@ -459,4 +459,135 @@ def test_add_memory_password_category_asks_website_or_app_name(manager):
     assert record['memory_value'] == 'SuperSecret999!'
 
 
+def test_add_memory_card_category_asks_card_number_expiry_and_cvv(manager):
+    def inspect_card_category():
+        dialog = QApplication.activeModalWidget()
+        cat_combo = dialog.findChild(QComboBox, 'memoryCategory')
+        title_option = dialog.findChild(QComboBox, 'memoryTitleOption')
+        password_app = dialog.findChild(QLineEdit, 'memoryPasswordApp')
+        card_title = dialog.findChild(QLineEdit, 'memoryCardTitle')
+        card_num = dialog.findChild(QLineEdit, 'memoryCardNumber')
+        card_exp = dialog.findChild(QLineEdit, 'memoryCardExpiry')
+        card_cvv = dialog.findChild(QLineEdit, 'memoryCardCvv')
+        val_edit = dialog.findChild(QTextEdit, 'memoryValue')
+
+        # Switch to Credit and Debit card details category
+        cat_combo.setCurrentText('Credit and Debit card details')
+        assert not title_option.isVisible()
+        assert not password_app.isVisible()
+        assert not val_edit.isVisible()
+        assert card_title.isVisible()
+        assert card_num.isVisible()
+        assert card_exp.isVisible()
+        assert card_cvv.isVisible()
+
+        # Enter details
+        card_title.setText('SBI Debit')
+        assert dialog.findChild(QLineEdit, 'memoryKey').text() == 'sbi.debit.card'
+        card_num.setText('4532 1111 2222 3333')
+        card_exp.setText('08/29')
+        card_cvv.setText('456')
+        modal_save(dialog)
+
+    QTimer.singleShot(0, inspect_card_category)
+    manager.edit_memory()
+    record = manager.core.get_memory_by_key('sbi.debit.card', consume=False, reveal=True)
+    assert record is not None
+    assert record['title'] == 'SBI Debit Card'
+    assert record['memory_value'] == "Card Number: 4532 1111 2222 3333\nExpiry Date: 08/29\nCVV Number: 456"
+    assert record['sensitive'] == 1
+
+
+def test_add_memory_card_category_validation(manager, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda parent, title, message: warnings.append(message))
+
+    # Test missing card number
+    def test_missing_card_num():
+        dialog = QApplication.activeModalWidget()
+        cat_combo = dialog.findChild(QComboBox, 'memoryCategory')
+        cat_combo.setCurrentText('Credit and Debit card details')
+        card_title = dialog.findChild(QLineEdit, 'memoryCardTitle')
+        card_title.setText('HDFC Card')
+        modal_save(dialog)
+        assert any('Please enter the card number' in w for w in warnings)
+        dialog.reject()
+
+    QTimer.singleShot(0, test_missing_card_num)
+    manager.edit_memory()
+
+    # Test missing expiry date
+    warnings.clear()
+    def test_missing_expiry():
+        dialog = QApplication.activeModalWidget()
+        cat_combo = dialog.findChild(QComboBox, 'memoryCategory')
+        cat_combo.setCurrentText('Credit and Debit card details')
+        dialog.findChild(QLineEdit, 'memoryCardTitle').setText('HDFC Card')
+        dialog.findChild(QLineEdit, 'memoryCardNumber').setText('1234 5678 9012 3456')
+        modal_save(dialog)
+        assert any('Please enter the expiry date' in w for w in warnings)
+        dialog.reject()
+
+    QTimer.singleShot(0, test_missing_expiry)
+    manager.edit_memory()
+
+    # Test missing CVV
+    warnings.clear()
+    def test_missing_cvv():
+        dialog = QApplication.activeModalWidget()
+        cat_combo = dialog.findChild(QComboBox, 'memoryCategory')
+        cat_combo.setCurrentText('Credit and Debit card details')
+        dialog.findChild(QLineEdit, 'memoryCardTitle').setText('HDFC Card')
+        dialog.findChild(QLineEdit, 'memoryCardNumber').setText('1234 5678 9012 3456')
+        dialog.findChild(QLineEdit, 'memoryCardExpiry').setText('12/28')
+        modal_save(dialog)
+        assert any('Please enter the CVV number' in w for w in warnings)
+        dialog.reject()
+
+    QTimer.singleShot(0, test_missing_cvv)
+    manager.edit_memory()
+
+
+
+def test_edit_memory_card_category_reveal_and_modify(manager, monkeypatch):
+    monkeypatch.setattr(QMessageBox, 'question', lambda *args: QMessageBox.StandardButton.Yes)
+    card_cat = next(c['id'] for c in manager.core.categories() if 'card' in c['name'].lower())
+    saved_val = "Card Number: 5555 4444 3333 2222\nExpiry Date: 04/30\nCVV Number: 789"
+    mem_id = manager.core.memory_service.create_memory(card_cat, 'ICICI Visa Card', 'icici.visa.card', saved_val)
+
+
+    def edit_card():
+        dialog = QApplication.activeModalWidget()
+        card_num = dialog.findChild(QLineEdit, 'memoryCardNumber')
+        card_exp = dialog.findChild(QLineEdit, 'memoryCardExpiry')
+        card_cvv = dialog.findChild(QLineEdit, 'memoryCardCvv')
+        val_edit = dialog.findChild(QTextEdit, 'memoryValue')
+
+        # Before reveal, fields should not show secret
+        assert not val_edit.toPlainText()
+        assert not card_num.text()
+
+        # Reveal
+        buttons = dialog.findChildren(QPushButton)
+        reveal_btn = next((b for b in buttons if 'Reveal' in b.text()), None)
+        assert reveal_btn is not None
+        reveal_btn.click()
+
+        # After reveal, fields are populated
+        assert card_num.text() == '5555 4444 3333 2222'
+        assert card_exp.text() == '04/30'
+        assert card_cvv.text() == '789'
+
+        # Modify CVV
+        card_cvv.setText('999')
+        modal_save(dialog)
+
+    QTimer.singleShot(0, edit_card)
+    manager.edit_memory(manager.core.get_memory(mem_id))
+
+    updated = manager.core.get_memory(mem_id, reveal=True)
+    assert updated['memory_value'] == "Card Number: 5555 4444 3333 2222\nExpiry Date: 04/30\nCVV Number: 999"
+
+
+
 

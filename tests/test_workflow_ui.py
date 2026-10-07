@@ -29,14 +29,15 @@ def controller(qtbot, tmp_path, monkeypatch):
 def fill(panel):
     panel.name.setText('Focus time')
     panel.phrases.setPlainText('focus now')
-    panel.add_type.setCurrentIndex(panel.add_type.findData('message'))
     panel.add_step()
+    panel.type.setCurrentIndex(panel.type.findData('message'))
     panel.value.setText('Ready!')
 
 
 def test_save_run_progress_and_step_settings(controller, qtbot):
     panel = controller.manager.workflows_panel
     assert PAGES[3] == 'Workflows'
+    assert not hasattr(panel, 'add_type')
     fill(panel)
     assert panel.dirty and not panel.run_button.isEnabled()
     assert panel.save()
@@ -69,8 +70,8 @@ def test_invalid_save_and_template_require_configuration(controller):
 def test_reorder_buttons_and_internal_drag_model(controller):
     panel = controller.manager.workflows_panel
     fill(panel)
-    panel.add_type.setCurrentIndex(panel.add_type.findData('wait'))
     panel.add_step()
+    panel.type.setCurrentIndex(panel.type.findData('wait'))
     panel.seconds.setValue(2)
     panel.move_step(-1)
     assert [s['type'] for s in panel.steps] == ['wait', 'message']
@@ -191,9 +192,9 @@ def test_minimum_width_stacks_editor_and_preserves_draft(controller, qtbot):
 def fill_finance(panel, urls):
     panel.name.setText('finance')
     panel.phrases.setPlainText('trading')
-    panel.add_type.setCurrentIndex(panel.add_type.findData('url'))
     for url in urls:
         panel.add_step()
+        panel.type.setCurrentIndex(panel.type.findData('url'))
         panel.value.setText(url)
 
 
@@ -277,10 +278,10 @@ def test_open_file_picker_and_save(controller, tmp_path, monkeypatch):
     file.touch()
     panel.name.setText('Finance files')
     panel.phrases.setPlainText('open trading notes')
-    index = panel.add_type.findData('file')
-    assert index >= 0 and panel.add_type.itemText(index) == 'Open File'
-    panel.add_type.setCurrentIndex(index)
     panel.add_step()
+    index = panel.type.findData('file')
+    assert index >= 0 and panel.type.itemText(index) == 'Open File'
+    panel.type.setCurrentIndex(index)
     assert panel.type.currentData() == 'file'
     assert panel.browse.text() == 'Choose file…'
     assert 'default Windows app' in panel.file_hint.text()
@@ -297,8 +298,8 @@ def test_open_file_picker_and_save(controller, tmp_path, monkeypatch):
 def test_cancel_file_picker_preserves_target(controller, tmp_path, monkeypatch):
     from PyQt6.QtWidgets import QFileDialog
     panel = controller.manager.workflows_panel
-    panel.add_type.setCurrentIndex(panel.add_type.findData('file'))
     panel.add_step()
+    panel.type.setCurrentIndex(panel.type.findData('file'))
     original = str(tmp_path / 'notes.txt')
     panel.value.setText(original)
     monkeypatch.setattr(QFileDialog, 'getOpenFileName', lambda *_: ('', ''))

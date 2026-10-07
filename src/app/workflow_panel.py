@@ -114,13 +114,8 @@ class WorkflowPanel(QWidget):
         done = text_label('↓\n◎  Done')
         done.setAlignment(Qt.AlignmentFlag.AlignCenter)
         flow.addWidget(done)
-        controls = QHBoxLayout()
-        self.add_type = QComboBox()
-        for kind, label in STEP_LABELS.items():
-            self.add_type.addItem(label, kind)
-        controls.addWidget(self.add_type)
-        controls.addWidget(action('+ Add Step', self.add_step))
-        flow.addLayout(controls)
+        self.add_step_button = action('+ Add Step', self.add_step)
+        flow.addWidget(self.add_step_button)
         move = QHBoxLayout()
         move.addWidget(action('Move Up', lambda: self.move_step(-1)))
         move.addWidget(action('Move Down', lambda: self.move_step(1)))
@@ -389,11 +384,12 @@ class WorkflowPanel(QWidget):
         if path:
             self.value.setText(path)
 
-    def add_step(self):
+    def add_step(self, kind=None):
         if len(self.steps) >= 50:
             self.show_notice('A routine supports at most 50 steps.')
             return
-        kind = self.add_type.currentData()
+        if not isinstance(kind, str) or kind not in STEP_LABELS:
+            kind = 'application'
         self.steps.append(dict(type=kind, value=0 if kind == 'wait' else ('notepad' if kind == 'application' else '')))
         self.result = None
         self.mark_dirty()

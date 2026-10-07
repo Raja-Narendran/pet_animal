@@ -444,13 +444,40 @@ class ManagerWindow(QMainWindow):
                 has_email = True
         return has_name, has_address, has_email
 
+    @staticmethod
+    def _parse_card_value(val_str):
+        num = ''
+        exp = ''
+        cvv = ''
+        if not val_str:
+            return num, exp, cvv
+        for line in val_str.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            m_num = re.match(r'^(?:card\s*number|card\s*no\.?|card)\s*:\s*(.*)$', line, re.IGNORECASE)
+            if m_num:
+                num = m_num.group(1).strip()
+                continue
+            m_exp = re.match(r'^(?:expiry\s*date|expiry|exp\s*date|exp)\s*:\s*(.*)$', line, re.IGNORECASE)
+            if m_exp:
+                exp = m_exp.group(1).strip()
+                continue
+            m_cvv = re.match(r'^(?:cvv\s*number|cvv\s*no\.?|cvv|cvc)\s*:\s*(.*)$', line, re.IGNORECASE)
+            if m_cvv:
+                cvv = m_cvv.group(1).strip()
+                continue
+        if not num and not exp and not cvv and val_str.strip():
+            num = val_str.strip()
+        return num, exp, cvv
+
     def edit_memory(self, record=None):
         if isinstance(record, bool):
             record = None
         if record:
             record = self.core.get_memory(record['id'])
         dialog, form, buttons = self.dialog('Edit memory' if record else 'Add memory')
-        dialog.resize(500, 440)
+        dialog.resize(500, 480)
         category = QComboBox()
         category.setObjectName('memoryCategory')
         for cat in self.core.categories():
@@ -469,6 +496,59 @@ class ManagerWindow(QMainWindow):
 
         # Auto-create key according to title when adding new memory
         key_manually_edited = [False]
+
+        sensitive = bool(record and record['sensitive'])
+        value = QTextEdit()
+        value.setPlainText('' if sensitive else record['memory_value'] if record else '')
+        value.setObjectName('memoryValue')
+        value.setMaximumHeight(120)
+        if sensitive:
+            value.setPlaceholderText('Encrypted value is preserved. Reveal it or enter a replacement.')
+        value_changed = [False]
+        value.textChanged.connect(lambda: value_changed.__setitem__(0, True))
+
+        value_label = QLabel('Value')
+
+        card_title = QLineEdit(record['title'] if record else '')
+        card_title.setObjectName('memoryCardTitle')
+        card_title.setPlaceholderText('e.g. HDFC Credit Card, SBI Debit Card, Visa')
+        card_title_label = QLabel('Card name or bank')
+
+        card_number = QLineEdit()
+        card_number.setObjectName('memoryCardNumber')
+        card_number.setPlaceholderText('Enter card number (e.g. 1234 5678 9012 3456)')
+        card_number_label = QLabel('Card number')
+
+        card_expiry = QLineEdit()
+        card_expiry.setObjectName('memoryCardExpiry')
+        card_expiry.setPlaceholderText('MM/YY (e.g. 12/28)')
+        card_expiry_label = QLabel('Expiry date')
+
+        card_cvv = QLineEdit()
+        card_cvv.setObjectName('memoryCardCvv')
+        card_cvv.setPlaceholderText('Enter CVV (e.g. 123)')
+        card_cvv_label = QLabel('CVV number')
+
+        def update_card_value():
+            c_num = card_number.text().strip()
+            c_exp = card_expiry.text().strip()
+            c_cvv = card_cvv.text().strip()
+            lines = []
+            if c_num:
+                lines.append(f"Card Number: {c_num}")
+            if c_exp:
+                lines.append(f"Expiry Date: {c_exp}")
+            if c_cvv:
+                lines.append(f"CVV Number: {c_cvv}")
+            value.blockSignals(True)
+            value.setPlainText('\n'.join(lines))
+            value.blockSignals(False)
+            if c_num or c_exp or c_cvv:
+                value_changed[0] = True
+
+        card_number.textChanged.connect(lambda _: update_card_value())
+        card_expiry.textChanged.connect(lambda _: update_card_value())
+        card_cvv.textChanged.connect(lambda _: update_card_value())
 
         title_option = None
         id_title = None
@@ -511,6 +591,7 @@ class ManagerWindow(QMainWindow):
                 cat_name = category.currentText().lower()
                 is_personal = ('personal' in cat_name)
                 is_password = ('password' in cat_name)
+                is_card = ('card' in cat_name or 'credit' in cat_name or 'debit' in cat_name)
                 if is_personal and clean and clean not in ('Name', 'Address', 'Mobile number', 'Email ID') and title_option.currentText() != 'IDs':
                     if title_option.currentText() != 'Custom':
                         title_option.blockSignals(True)
@@ -530,6 +611,10 @@ class ManagerWindow(QMainWindow):
                         t = password_app.text().strip()
                         full = t if 'password' in t.lower() else f"{t} Password"
                         key.setText(re.sub(r'[^a-z0-9_.]+', '.', full.lower()).strip('.'))
+                    elif is_card and card_title.text().strip():
+                        t = card_title.text().strip()
+                        full = t if t.lower().endswith('card') else f"{t} Card"
+                        key.setText(re.sub(r'[^a-z0-9_.]+', '.', full.lower()).strip('.'))
                     else:
                         slug = re.sub(r'[^a-z0-9_.]+', '.', text.strip().lower()).strip('.')
                         key.setText(slug)
@@ -548,6 +633,19 @@ class ManagerWindow(QMainWindow):
                     key.setText('')
 
             password_app.textChanged.connect(on_password_app_changed)
+
+            def on_card_title_changed(text):
+                clean = text.strip()
+                if clean:
+                    t = clean if clean.lower().endswith('card') else f"{clean} Card"
+                    title.setText(t)
+                    slug = re.sub(r'[^a-z0-9_.]+', '.', t.lower()).strip('.')
+                    key.setText(slug if slug else 'card')
+                else:
+                    title.setText('')
+                    key.setText('')
+
+            card_title.textChanged.connect(on_card_title_changed)
 
             def apply_option(option):
                 personal_cat_index = next((i for i in range(category.count()) if 'personal' in category.itemText(i).lower()), -1)
@@ -632,6 +730,7 @@ class ManagerWindow(QMainWindow):
                 cat_name = category.currentText().lower()
                 is_personal = ('personal' in cat_name)
                 is_password = ('password' in cat_name)
+                is_card = ('card' in cat_name or 'credit' in cat_name or 'debit' in cat_name)
 
                 title_option_label.setVisible(is_personal)
                 title_option.setVisible(is_personal)
@@ -639,23 +738,48 @@ class ManagerWindow(QMainWindow):
                 password_app_label.setVisible(is_password)
                 password_app.setVisible(is_password)
 
+                card_title_label.setVisible(is_card)
+                card_title.setVisible(is_card)
+                card_number_label.setVisible(is_card)
+                card_number.setVisible(is_card)
+                card_expiry_label.setVisible(is_card)
+                card_expiry.setVisible(is_card)
+                card_cvv_label.setVisible(is_card)
+                card_cvv.setVisible(is_card)
+
                 if is_personal:
                     id_title_label.setVisible(title_option.currentText() == 'IDs')
                     id_title.setVisible(title_option.currentText() == 'IDs')
                     title_label.setVisible(title_option.currentText() == 'Custom')
                     title.setVisible(title_option.currentText() == 'Custom')
+                    value_label.setVisible(True)
+                    value.setVisible(True)
                     apply_option(title_option.currentText())
                 elif is_password:
                     id_title_label.setVisible(False)
                     id_title.setVisible(False)
                     title_label.setVisible(False)
                     title.setVisible(False)
+                    value_label.setVisible(True)
+                    value.setVisible(True)
                     value.setPlaceholderText('Enter password')
                     password_app.setFocus()
                     if password_app.text().strip():
                         on_password_app_changed(password_app.text())
                     elif title.text().strip() and not title.text().endswith(' Password'):
                         password_app.setText(title.text().strip())
+                elif is_card:
+                    id_title_label.setVisible(False)
+                    id_title.setVisible(False)
+                    title_label.setVisible(False)
+                    title.setVisible(False)
+                    value_label.setVisible(False)
+                    value.setVisible(False)
+                    card_title.setFocus()
+                    if card_title.text().strip():
+                        on_card_title_changed(card_title.text())
+                    elif title.text().strip() and not (title.text().endswith(' Password') or title.text().endswith(' Card')):
+                        card_title.setText(title.text().strip())
                 else:
                     id_title_label.setVisible(False)
                     id_title.setVisible(False)
@@ -663,22 +787,14 @@ class ManagerWindow(QMainWindow):
                     title.setVisible(True)
                     title.setReadOnly(False)
                     title.setPlaceholderText('Enter memory title')
-                    if title.text() in ('Name', 'Address', 'Mobile number', 'Email ID', 'ID') or title.text().endswith(' Password'):
+                    if title.text() in ('Name', 'Address', 'Mobile number', 'Email ID', 'ID') or title.text().endswith(' Password') or title.text().endswith(' Card'):
                         title.setText('')
                         key.setText('')
+                    value_label.setVisible(True)
+                    value.setVisible(True)
                     value.setPlaceholderText('Enter memory value')
 
             category.currentIndexChanged.connect(on_category_changed)
-
-        sensitive = bool(record and record['sensitive'])
-        value = QTextEdit()
-        value.setPlainText('' if sensitive else record['memory_value'] if record else '')
-        value.setObjectName('memoryValue')
-        value.setMaximumHeight(120)
-        if sensitive:
-            value.setPlaceholderText('Encrypted value is preserved. Reveal it or enter a replacement.')
-        value_changed = [False]
-        value.textChanged.connect(lambda: value_changed.__setitem__(0, True))
 
         scope = QComboBox()
         scope.setObjectName('memoryScope')
@@ -696,18 +812,52 @@ class ManagerWindow(QMainWindow):
             form.addRow(title_option_label, title_option)
             form.addRow(id_title_label, id_title)
             form.addRow(password_app_label, password_app)
+            form.addRow(card_title_label, card_title)
             form.addRow(title_label, title)
             form.addRow('Key', key)
-            form.addRow('Value', value)
+            form.addRow(card_number_label, card_number)
+            form.addRow(card_expiry_label, card_expiry)
+            form.addRow(card_cvv_label, card_cvv)
+            form.addRow(value_label, value)
             on_category_changed()
         else:
-            for name, widget in [('Category', category), ('Title', title), ('Key', key), ('Value', value)]:
-                form.addRow(name, widget)
+            cat_name = category.currentText().lower()
+            is_card = ('card' in cat_name or 'credit' in cat_name or 'debit' in cat_name)
+            if is_card:
+                if sensitive:
+                    card_number.setPlaceholderText('Encrypted value is preserved. Reveal it or enter replacement.')
+                    card_expiry.setPlaceholderText('MM/YY')
+                    card_cvv.setPlaceholderText('CVV')
+                form.addRow('Category', category)
+                form.addRow('Title', title)
+                form.addRow('Key', key)
+                form.addRow(card_number_label, card_number)
+                form.addRow(card_expiry_label, card_expiry)
+                form.addRow(card_cvv_label, card_cvv)
+                form.addRow(value_label, value)
+                value_label.setVisible(False)
+                value.setVisible(False)
+            else:
+                for name, widget in [('Category', category), ('Title', title), ('Key', key), (value_label, value)]:
+                    form.addRow(name, widget)
 
         if sensitive:
             def reveal_edit():
                 revealed = self.core.get_memory(record['id'], reveal=True)
-                value.setPlainText(revealed['memory_value'])
+                val_text = revealed['memory_value']
+                value.setPlainText(val_text)
+                cat_name = category.currentText().lower()
+                if 'card' in cat_name or 'credit' in cat_name or 'debit' in cat_name:
+                    c_num, c_exp, c_cvv = self._parse_card_value(val_text)
+                    card_number.blockSignals(True)
+                    card_expiry.blockSignals(True)
+                    card_cvv.blockSignals(True)
+                    card_number.setText(c_num)
+                    card_expiry.setText(c_exp)
+                    card_cvv.setText(c_cvv)
+                    card_number.blockSignals(False)
+                    card_expiry.blockSignals(False)
+                    card_cvv.blockSignals(False)
             form.addRow('', button('Reveal encrypted value', lambda: self.guard(reveal_edit)))
         form.addRow('Scope', scope)
         form.addRow('Enabled', enabled)
@@ -719,6 +869,7 @@ class ManagerWindow(QMainWindow):
                 cat_name = category.currentText().lower()
                 is_personal = ('personal' in cat_name)
                 is_password = ('password' in cat_name)
+                is_card = ('card' in cat_name or 'credit' in cat_name or 'debit' in cat_name)
 
                 if not record and is_personal and title_option and title_option.currentText() == 'IDs':
                     id_entered = id_title.text().strip()
@@ -733,6 +884,13 @@ class ManagerWindow(QMainWindow):
                     elif not target_title:
                         raise ValueError('Please enter the website or app name.')
 
+                if not record and is_card:
+                    c_entered = card_title.text().strip()
+                    if c_entered:
+                        target_title = c_entered if c_entered.lower().endswith('card') else f"{c_entered} Card"
+                    elif not target_title:
+                        raise ValueError('Please enter the card name or bank.')
+
                 if not target_title:
                     raise ValueError('Please enter a title for the memory.')
 
@@ -740,7 +898,34 @@ class ManagerWindow(QMainWindow):
                     target_key = re.sub(r'[^a-z0-9_.]+', '.', target_title.lower()).strip('.')
                 fields = dict(category_id=category.currentData(), title=target_title, key=target_key,
                               enabled=enabled.isChecked(), memory_scope=scope.currentData())
-                if not sensitive or value_changed[0]:
+
+                if not record and is_card:
+                    c_num = card_number.text().strip()
+                    c_exp = card_expiry.text().strip()
+                    c_cvv = card_cvv.text().strip()
+                    if not c_num and not c_exp and not c_cvv and value.toPlainText().strip():
+                        c_num, c_exp, c_cvv = self._parse_card_value(value.toPlainText())
+                    if not c_num:
+                        raise ValueError('Please enter the card number.')
+                    if not c_exp:
+                        raise ValueError('Please enter the expiry date.')
+                    if not c_cvv:
+                        raise ValueError('Please enter the CVV number.')
+                    fields['value'] = f"Card Number: {c_num}\nExpiry Date: {c_exp}\nCVV Number: {c_cvv}"
+                elif record and is_card and value_changed[0]:
+                    c_num = card_number.text().strip()
+                    c_exp = card_expiry.text().strip()
+                    c_cvv = card_cvv.text().strip()
+                    if not c_num and not c_exp and not c_cvv and value.toPlainText().strip():
+                        c_num, c_exp, c_cvv = self._parse_card_value(value.toPlainText())
+                    if not c_num:
+                        raise ValueError('Please enter the card number.')
+                    if not c_exp:
+                        raise ValueError('Please enter the expiry date.')
+                    if not c_cvv:
+                        raise ValueError('Please enter the CVV number.')
+                    fields['value'] = f"Card Number: {c_num}\nExpiry Date: {c_exp}\nCVV Number: {c_cvv}"
+                elif not sensitive or value_changed[0]:
                     fields['value'] = value.toPlainText()
                 def apply(confirmed=False):
                     if record:
@@ -762,6 +947,7 @@ class ManagerWindow(QMainWindow):
         form.addRow(buttons)
         buttons.accepted.connect(save)
         dialog.exec()
+
 
     def add_memory_relationship(self, record):
         dialog, form, buttons = self.dialog('Add memory relationship')
@@ -1034,7 +1220,6 @@ class ManagerWindow(QMainWindow):
             }
         layout.addWidget(button('Save & activate profile', lambda: self.guard(lambda: self.core.save_profile(name.text(), assets.currentData(), config(profiles.currentData()), profiles.currentData())), True))
         layout.addWidget(button('Save as new profile', lambda: self.guard(lambda: self.core.save_profile(name.text(), assets.currentData(), config()))))
-        layout.addWidget(label('Size presets: Small 128 · Medium 240 · Large 320. Dragging saves the position automatically.', 'muted'))
         self.content_layout.addWidget(frame)
 
     def import_pet(self):
@@ -1121,13 +1306,21 @@ class ManagerWindow(QMainWindow):
         voice_hotkey.setChecked(config.get('voice_hotkey_enabled', False))
         form.addRow(voice_hotkey)
         form.addRow(label('Hold Ctrl + Windows to speak. Release either key to submit.', 'muted'))
-        hotkey_status = QLabel(getattr(self.controller, 'voice_hotkey_status', ''))
+        hotkey_status = QLabel('')
         hotkey_status.setWordWrap(True)
-        self.controller.voice_hotkey_status_changed.connect(hotkey_status.setText)
+        hotkey_status.setVisible(False)
+        def update_hotkey_status(status):
+            if not status or 'ready' in status.lower() or status in ('Voice shortcut is disabled.', 'Starting voice shortcut...'):
+                hotkey_status.setText('')
+                hotkey_status.setVisible(False)
+            else:
+                hotkey_status.setText(status)
+                hotkey_status.setVisible(True)
+        update_hotkey_status(getattr(self.controller, 'voice_hotkey_status', ''))
+        self.controller.voice_hotkey_status_changed.connect(update_hotkey_status)
         form.addRow(hotkey_status)
         layout.addLayout(form)
         layout.addWidget(button('Save preferences', lambda: self.guard(lambda: self.core.save_settings(dict(config, theme=theme.currentText(), voice_mode=voice_mode.currentData(), google_voice_language=google_language.currentData(), voice_hotkey_enabled=voice_hotkey.isChecked()))), True))
-        layout.addWidget(label('Default profile, size and animation preferences are managed in Pet Studio.', 'muted'))
         self.content_layout.addWidget(frame)
         frame, layout = self.card('Local file search')
         search_config = self.core.file_search_settings()
