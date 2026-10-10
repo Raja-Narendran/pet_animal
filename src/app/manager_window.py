@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtCore import QSize
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QListWidgetItem, QListWidget, QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QLineEdit, QComboBox, QDialog, QFormLayout, QLayout, QDialogButtonBox, QTextEdit, QCheckBox, QFileDialog, QMessageBox, QSizePolicy
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QListWidgetItem, QListWidget, QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QLineEdit, QDialog, QFormLayout, QLayout, QDialogButtonBox, QTextEdit, QCheckBox, QFileDialog, QMessageBox, QSizePolicy
 from ..core.memory import MemoryConflict
 from .software_discovery import SoftwareDiscoveryState
 from .manager_ui.widgets import ComboBox as QComboBox

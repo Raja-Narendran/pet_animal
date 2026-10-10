@@ -6,11 +6,23 @@ processes or sleep: its caller dispatches a prepared step and supplies an outcom
 import json
 import math
 import re
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from dataclasses import dataclass, replace
 from ..services.windows_launcher import WindowsLauncher, BLOCKED_FILE_EXTENSIONS
 from ..services.file_search import local_path
 from ..services.software_discovery import ApplicationValidator, ValidationStatus
+from .memory.service import normalize
+
+
+def identifier():
+    return str(uuid.uuid4())
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
 
 STEP_LABELS = {'application': 'Open App', 'url': 'Open URL', 'folder': 'Open Folder', 'file': 'Open File',
                'wait': 'Wait', 'message': 'Display Message'}
@@ -131,7 +143,6 @@ class WorkflowService:
             return str(error)
 
     def _save(self, name, phrases, steps, enabled=True, routine_id=None, *, imported=False):
-        from .application import identifier
         if routine_id is not None:
             self.ensure_idle(routine_id)
         prepared = self.validate_steps(steps, live=not imported)
@@ -182,7 +193,6 @@ class WorkflowService:
         return dict(name=record['name'] + ' copy', phrases=[], steps=record['steps'], enabled=False)
 
     def start(self, routine_id, phrase=None):
-        from .application import identifier, now, normalize
         if self.active:
             raise ValueError('A routine is already running.')
         record = self.get(routine_id)
@@ -210,7 +220,6 @@ class WorkflowService:
         return engine
 
     def persist_progress(self):
-        from .application import now
         engine = self.active
         if not engine:
             return
@@ -220,7 +229,6 @@ class WorkflowService:
                     (item.status, item.outcome, '', item.status, 'pending', now(), item.status, 'success', 'failed', 'skipped', 'cancelled', '', now(), engine.result.id, item.position))
 
     def finish(self):
-        from .application import identifier, now
         engine = self.active
         if not engine or engine.result.status == 'running':
             return
@@ -238,7 +246,6 @@ class WorkflowService:
 
     def recover_interrupted(self):
         # An OS crash must not resume actions or leave a permanently running record.
-        from .application import identifier, now
         with self.core.db:
             rows = self.core.rows("SELECT w.*,r.command_id FROM workflow_runs w LEFT JOIN routines r ON r.id=w.routine_id WHERE w.status='running'")
             for row in rows:

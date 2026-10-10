@@ -6,7 +6,7 @@ without altering the Command model or Executor.
 import re
 from abc import ABC, abstractmethod
 from .model import Command, ActionType
-from .interpreter.patterns import APPLICATION_ALIASES, SEARCH_PREFIXES, MUSIC_PREFIXES, HELP_PHRASES, music_request
+from .interpreter.patterns import APPLICATION_ALIASES, SEARCH_PREFIXES, HELP_PHRASES, music_request
 from ..config.settings import settings
 from ..utils.logger import get_logger
 

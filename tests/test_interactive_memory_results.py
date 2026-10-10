@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QLabel, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel
 
 from src.commands.interpreter import IntentType, RuleBasedIntentInterpreter
 from src.config.settings import settings

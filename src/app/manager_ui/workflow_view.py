@@ -1,6 +1,6 @@
 """Native Stitch workflow composition, independent of routine execution logic."""
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QPlainTextEdit, QSplitter, QListWidget, QAbstractItemView, QGridLayout, QComboBox, QDoubleSpinBox
+from PyQt6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QPlainTextEdit, QSplitter, QListWidget, QAbstractItemView, QGridLayout, QDoubleSpinBox
 from ...core.workflows import STEP_LABELS
 from .widgets import ComboBox as QComboBox
 from .widgets import label, card, button, actions, ResponsiveRow, Toggle

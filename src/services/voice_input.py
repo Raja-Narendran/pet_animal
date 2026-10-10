@@ -4,7 +4,6 @@ Multilingual Whisper handles Tamil/English speech after a language-independent
 silence detector. Local models are bundled. Only the explicitly selected Google engine uploads audio.
 """
 import queue as _queue
-import json
 import math
 import sys
 import threading

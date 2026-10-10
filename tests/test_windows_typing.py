@@ -3,7 +3,7 @@ import ctypes
 from unittest.mock import MagicMock
 import pytest
 from src.services.windows_typing import (WindowsTypingService, TypingTarget,
-    GUIThreadInfo, parse_dictation, Input)
+    parse_dictation, Input)
 
 
 @pytest.mark.parametrize('phrase, expected', [

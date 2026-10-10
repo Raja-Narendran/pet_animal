@@ -6,7 +6,7 @@ import hashlib
 import json
 import pytest
 from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtWidgets import QApplication, QPushButton, QCheckBox, QBoxLayout, QLabel
+from PyQt6.QtWidgets import QApplication, QPushButton, QBoxLayout, QLabel
 from src.app.controller import ApplicationController
 from src.app.manager_window import PAGES
 from src.app.manager_ui import theme

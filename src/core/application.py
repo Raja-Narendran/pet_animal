@@ -16,7 +16,7 @@ from .memory.service import normalize as normalize_memory
 from .shortcuts import APPLICATION_NAMES, ApplicationShortcut, match_shortcuts
 from .file_search import FileSearchSession
 from .workflows import WorkflowService
-from ..services.file_search import FileSearchService, FileSearchResponse, local_path
+from ..services.file_search import FileSearchService, FileSearchResponse, local_path, is_local_path
 from ..config.settings import settings
 from ..services.windows_launcher import WindowsLauncher
 from ..services.software_discovery import DiscoveredApplication, RegisteredApplication, ApplicationValidator, ValidationStatus, DiscoverySource
@@ -796,7 +796,6 @@ class ApplicationCore:
 
     @staticmethod
     def validate_file_search_settings(config):
-        from ..services.file_search import is_local_path
         if not isinstance(config, dict) or set(config) != {'roots', 'everything_executable'}:
             raise ValueError('Invalid local file search settings.')
         roots, executable = config['roots'], config['everything_executable']
@@ -1178,7 +1177,6 @@ class ApplicationCore:
             if version < 7:
                 candidate.executescript((settings.BASE_DIR / 'src/database/migrations/007_workflows.sql').read_text(encoding='utf-8-sig'))
             for row in candidate.execute('SELECT path, opened FROM file_open_history'):
-                from ..services.file_search import is_local_path
                 if not is_local_path(row[0]) or not isinstance(row[1], (float, int)) or not 0 < row[1] < float('inf'):
                     raise ValueError('Invalid file open history.')
             # Require the application's exact schema: no injected triggers/views or altered constraints.

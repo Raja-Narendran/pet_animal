@@ -1,7 +1,7 @@
 """Manager review controls; the discovery worker never touches SQLite."""
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QLineEdit, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QTextEdit, QCheckBox
-from .manager_ui.widgets import ComboBox as QComboBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QTextEdit, QCheckBox
+from .manager_ui.widgets import ComboBox as QComboBox, button, label, actions
 from ..services.software_discovery import SoftwareDiscoveryService, ApplicationValidator, ValidationStatus
 from ..services.software_discovery.validator import canonical_path
 
@@ -76,7 +76,6 @@ class SoftwareDiscoveryState(QObject):
 class SoftwareDiscoveryPanel(QWidget):
     def __init__(self, manager):
         super().__init__(manager)
-        from .manager_ui.widgets import button, label, actions
         self.manager, self.core, self.state = manager, manager.core, manager.software_state
         self.query, self.filter = '', 'All'
         layout = QVBoxLayout(self)
@@ -207,7 +206,6 @@ class SoftwareDiscoveryPanel(QWidget):
         dialog.exec()
 
     def _approve_selected(self):
-        from .manager_window import label
         index = self.discovery_table.currentRow()
         if not 0 <= index < len(self.candidates):
             return

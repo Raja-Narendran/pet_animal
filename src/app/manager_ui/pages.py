@@ -1,7 +1,6 @@
 """Stitch page layouts wired exclusively to existing Manager handlers and services."""
-import json
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QFormLayout, QLabel, QLineEdit, QComboBox, QPlainTextEdit, QCheckBox, QMessageBox, QFileDialog, QProgressBar, QHeaderView, QSizePolicy, QFrame, QPushButton
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QFormLayout, QLabel, QLineEdit, QPlainTextEdit, QCheckBox, QMessageBox, QFileDialog, QProgressBar, QHeaderView, QSizePolicy, QFrame, QPushButton
 from ...core.application import DEFAULT_PET
 from ..software_discovery import SoftwareDiscoveryPanel
 from .widgets import label, button, badge, ResponsiveRow, actions as action_bar, Toggle, NoScrollSlider, SegmentedControl
