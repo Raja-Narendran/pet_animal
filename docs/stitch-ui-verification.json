@@ -1,0 +1,2651 @@
+{
+  "success": true,
+  "generated_at": "2026-10-08T05:54:52.930060+00:00",
+  "client_timezone": "Asia/Calcutta",
+  "framework": "Python / native PyQt6 widgets / Qt stylesheets",
+  "schema_version": 7,
+  "backend_api_changes": false,
+  "database_migrations_added": false,
+  "tests": {
+    "passed": 1226,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "baseline": 1179,
+    "migration_checks": 47,
+    "seconds": 188.926,
+    "junit": "build/stitch-test-results.xml",
+    "warnings": [
+      "Existing SpeechRecognition aifc deprecation warning"
+    ],
+    "focused_after_headroom": 35,
+    "full_suite_after_header_alignment": 1226
+  },
+  "visual_matrix": {
+    "captures": 126,
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "logical_sizes": [
+      [
+        1200,
+        900
+      ],
+      [
+        1600,
+        1000
+      ],
+      [
+        850,
+        650
+      ]
+    ],
+    "qt_scale_factors": [
+      1,
+      1.25,
+      1.5
+    ],
+    "horizontal_overflow": 0,
+    "local_font": "Inter",
+    "reports": [
+      {
+        "scale": "1",
+        "font": "Inter",
+        "captures": [
+          {
+            "page": "Dashboard",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1200x900-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1200x900-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1200x900-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1200x900-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1200x900-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1200x900-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1200x900-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1600x1000-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1600x1000-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1600x1000-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1600x1000-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1600x1000-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1600x1000-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-1600x1000-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-850x650-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-850x650-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-850x650-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-850x650-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-850x650-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-850x650-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\light-850x650-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1200x900-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1200x900-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1200x900-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1200x900-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1200x900-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1200x900-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1200x900-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1600x1000-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1600x1000-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1600x1000-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1600x1000-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1600x1000-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1600x1000-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-1600x1000-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-850x650-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-850x650-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-850x650-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-850x650-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-850x650-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-850x650-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1\\dark-850x650-settings.png"
+          }
+        ],
+        "problems": [],
+        "success": true
+      },
+      {
+        "scale": "1.25",
+        "font": "Inter",
+        "captures": [
+          {
+            "page": "Dashboard",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1200x900-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1200x900-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1200x900-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1200x900-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1200x900-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1200x900-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1200x900-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1600x1000-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1600x1000-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1600x1000-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1600x1000-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1600x1000-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1600x1000-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-1600x1000-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-850x650-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-850x650-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-850x650-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-850x650-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-850x650-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-850x650-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\light-850x650-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1200x900-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1200x900-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1200x900-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1200x900-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1200x900-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1200x900-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1200x900-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1600x1000-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1600x1000-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1600x1000-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1600x1000-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1600x1000-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1600x1000-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-1600x1000-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-850x650-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-850x650-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-850x650-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-850x650-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-850x650-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-850x650-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.25\\dark-850x650-settings.png"
+          }
+        ],
+        "problems": [],
+        "success": true
+      },
+      {
+        "scale": "1.5",
+        "font": "Inter",
+        "captures": [
+          {
+            "page": "Dashboard",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1200x900-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1200x900-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1200x900-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1200x900-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1200x900-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1200x900-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "light",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1200x900-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1600x1000-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1600x1000-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1600x1000-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1600x1000-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1600x1000-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1600x1000-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "light",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-1600x1000-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-850x650-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-850x650-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-850x650-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-850x650-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-850x650-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-850x650-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "light",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\light-850x650-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1200x900-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1200x900-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1200x900-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1200x900-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1200x900-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1200x900-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "dark",
+            "requested": [
+              1200,
+              900
+            ],
+            "actual": [
+              1200,
+              900
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1200x900-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1600x1000-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1600x1000-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1600x1000-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1600x1000-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1600x1000-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1600x1000-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "dark",
+            "requested": [
+              1600,
+              1000
+            ],
+            "actual": [
+              1600,
+              1000
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-1600x1000-settings.png"
+          },
+          {
+            "page": "Dashboard",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-850x650-dashboard.png"
+          },
+          {
+            "page": "Memory",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-850x650-memory.png"
+          },
+          {
+            "page": "Commands",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-850x650-commands.png"
+          },
+          {
+            "page": "Workflows",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-850x650-workflows.png"
+          },
+          {
+            "page": "Pet Studio",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-850x650-pet-studio.png"
+          },
+          {
+            "page": "Activity",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-850x650-activity.png"
+          },
+          {
+            "page": "Settings",
+            "theme": "dark",
+            "requested": [
+              850,
+              650
+            ],
+            "actual": [
+              850,
+              650
+            ],
+            "horizontal_overflow": 0,
+            "image": "build\\stitch-ui\\1.5\\dark-850x650-settings.png"
+          }
+        ],
+        "problems": [],
+        "success": true
+      }
+    ]
+  },
+  "source_self_test": {
+    "success": true,
+    "version": "2.0.0",
+    "software_discovery": {
+      "candidates": 281,
+      "launchable": 70
+    },
+    "personal_memory_engine": {
+      "schema_version": 7,
+      "preference_resolution": true,
+      "aliases_tags_relationships": true,
+      "access_tracking": true,
+      "dpapi_safe_export": true,
+      "session_restore_cleanup": true
+    },
+    "workflows": {
+      "schema_version": 7,
+      "ordered_execution": true,
+      "asynchronous_wait": true,
+      "private_history": true,
+      "backup_restore": true,
+      "default_app_file_step": true
+    },
+    "checks": [
+      "SQLite migration",
+      "memory persistence",
+      "backup restore",
+      "seven Manager pages",
+      "approved workflows, asynchronous ordered execution and private step history",
+      "live profile switching",
+      "independent Manager closing",
+      "offline English and Tamil engines, models, native decoder, and voice command routing",
+      "smart command resolution, negation and parse-only Manager tester",
+      "software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal",
+      "Google English/Tamil configuration, bundled FLAC encoder, and mocked HTTPS recognition",
+      "quit cleanup"
+    ]
+  },
+  "frozen_self_test": {
+    "success": true,
+    "version": "2.0.0",
+    "software_discovery": {
+      "candidates": 281,
+      "launchable": 70
+    },
+    "personal_memory_engine": {
+      "schema_version": 7,
+      "preference_resolution": true,
+      "aliases_tags_relationships": true,
+      "access_tracking": true,
+      "dpapi_safe_export": true,
+      "session_restore_cleanup": true
+    },
+    "workflows": {
+      "schema_version": 7,
+      "ordered_execution": true,
+      "asynchronous_wait": true,
+      "private_history": true,
+      "backup_restore": true,
+      "default_app_file_step": true
+    },
+    "checks": [
+      "SQLite migration",
+      "memory persistence",
+      "backup restore",
+      "seven Manager pages",
+      "approved workflows, asynchronous ordered execution and private step history",
+      "live profile switching",
+      "independent Manager closing",
+      "offline English and Tamil engines, models, native decoder, and voice command routing",
+      "smart command resolution, negation and parse-only Manager tester",
+      "software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal",
+      "Google English/Tamil configuration, bundled FLAC encoder, and mocked HTTPS recognition",
+      "quit cleanup"
+    ]
+  },
+  "installer_self_test": {
+    "success": true,
+    "version": "2.0.0",
+    "software_discovery": {
+      "candidates": 281,
+      "launchable": 70
+    },
+    "personal_memory_engine": {
+      "schema_version": 7,
+      "preference_resolution": true,
+      "aliases_tags_relationships": true,
+      "access_tracking": true,
+      "dpapi_safe_export": true,
+      "session_restore_cleanup": true
+    },
+    "workflows": {
+      "schema_version": 7,
+      "ordered_execution": true,
+      "asynchronous_wait": true,
+      "private_history": true,
+      "backup_restore": true,
+      "default_app_file_step": true
+    },
+    "checks": [
+      "SQLite migration",
+      "memory persistence",
+      "backup restore",
+      "seven Manager pages",
+      "approved workflows, asynchronous ordered execution and private step history",
+      "live profile switching",
+      "independent Manager closing",
+      "offline English and Tamil engines, models, native decoder, and voice command routing",
+      "smart command resolution, negation and parse-only Manager tester",
+      "software discovery, user-authorized bulk refresh registration, duplicate refresh, dynamic Tanglish aliases, disable, missing-path restore and removal",
+      "Google English/Tamil configuration, bundled FLAC encoder, and mocked HTTPS recognition",
+      "quit cleanup"
+    ],
+    "installer_archive_verified": true
+  },
+  "packaged_resources": {
+    "bundle": "K:\\pet_animal\\dist\\v2\\pet-animal\\_internal",
+    "resources": [
+      {
+        "path": "assets/ui/stitch/account_tree.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/add.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/arrow_forward.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/chat_bubble.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/check_circle.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/computer.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/content_copy.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/dashboard.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/delete.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/description.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/download.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/edit.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/expand_more.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/folder_open.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/history.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/lock.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/palette.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/pets.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/play_arrow.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/psychology.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/refresh.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/save.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/search.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/stop.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/terminal.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/timer.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/tune.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/upload_file.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/visibility.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/visibility_off.svg",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/fonts/InterVariable.ttf",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/fonts/OFL.txt",
+        "hash_matches": true
+      },
+      {
+        "path": "assets/ui/stitch/LICENSE.txt",
+        "hash_matches": true
+      }
+    ],
+    "icons": [
+      {
+        "name": "account_tree",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "account_tree",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "account_tree",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "add",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "add",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "add",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "arrow_forward",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "arrow_forward",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "arrow_forward",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "chat_bubble",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "chat_bubble",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "chat_bubble",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "check_circle",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "check_circle",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "check_circle",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "computer",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "computer",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "computer",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "content_copy",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "content_copy",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "content_copy",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "dashboard",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "dashboard",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "dashboard",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "delete",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "delete",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "delete",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "description",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "description",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "description",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "download",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "download",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "download",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "edit",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "edit",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "edit",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "expand_more",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "expand_more",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "expand_more",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "folder_open",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "folder_open",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "folder_open",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "history",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "history",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "history",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "lock",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "lock",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "lock",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "palette",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "palette",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "palette",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "pets",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "pets",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "pets",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "play_arrow",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "play_arrow",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "play_arrow",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "psychology",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "psychology",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "psychology",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "refresh",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "refresh",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "refresh",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "save",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "save",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "save",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "search",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "search",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "search",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "stop",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "stop",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "stop",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "terminal",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "terminal",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "terminal",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "timer",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "timer",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "timer",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "tune",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "tune",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "tune",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "upload_file",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "upload_file",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "upload_file",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "visibility",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "visibility",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "visibility",
+        "scale": 1.5,
+        "loads": true
+      },
+      {
+        "name": "visibility_off",
+        "scale": 1,
+        "loads": true
+      },
+      {
+        "name": "visibility_off",
+        "scale": 1.25,
+        "loads": true
+      },
+      {
+        "name": "visibility_off",
+        "scale": 1.5,
+        "loads": true
+      }
+    ],
+    "modules": [
+      {
+        "name": "src.app.manager_window",
+        "matches_source": true
+      },
+      {
+        "name": "src.app.workflow_panel",
+        "matches_source": true
+      },
+      {
+        "name": "src.app.software_discovery",
+        "matches_source": true
+      },
+      {
+        "name": "src.app.manager_ui",
+        "matches_source": true
+      },
+      {
+        "name": "src.app.manager_ui.icons",
+        "matches_source": true
+      },
+      {
+        "name": "src.app.manager_ui.pages",
+        "matches_source": true
+      },
+      {
+        "name": "src.app.manager_ui.preview",
+        "matches_source": true
+      },
+      {
+        "name": "src.app.manager_ui.theme",
+        "matches_source": true
+      },
+      {
+        "name": "src.app.manager_ui.widgets",
+        "matches_source": true
+      },
+      {
+        "name": "src.app.manager_ui.workflow_view",
+        "matches_source": true
+      }
+    ],
+    "font": "Inter",
+    "problems": [],
+    "success": true
+  },
+  "installer_input_archive": {
+    "executable_matches_release": true,
+    "resource_hashes_verified": 33
+  },
+  "artifacts": [
+    {
+      "path": "dist/v2/pet-animal/pet-animal.exe",
+      "bytes": 15390345,
+      "sha256": "205727e9ee5f127fcdbeeed5b9e7bebbb4a5f15af7e9bce25e2385a877b3b452"
+    },
+    {
+      "path": "dist/v2/Pet-Animal-2.0-Setup.exe",
+      "bytes": 699406664,
+      "sha256": "ff01ab1665b42f7b165e61684a0e312c0f70ac41b7b075d22349babc2534ea2d"
+    }
+  ],
+  "verification_scope": {
+    "offscreen_qt_rendering": true,
+    "keyboard_switch_behavior": true,
+    "long_text_and_empty_filters": true,
+    "font_and_icon_fallback": true,
+    "live_local_software_discovery": true,
+    "external_launcher_and_audio_transfer_mocks": true,
+    "interactive_windows_title_bar_and_os_scale_changes": false
+  },
+  "notes": [
+    "Native Windows title bar and floating companion presentation are retained.",
+    "Interactive Windows title-bar operations and OS display-setting transitions remain for manual review.",
+    "Existing pre-migration edits in core, controller, interpreter and floating response components were preserved."
+  ],
+  "headroom_adjustment": {
+    "sidebar_top_px": 32,
+    "content_top_px": 32,
+    "previous_top_px": 24,
+    "visual_captures": 126,
+    "focused_ui_checks": 35,
+    "source_self_test": true,
+    "frozen_self_test": true,
+    "installer_self_test": true
+  },
+  "header_action_alignment": {
+    "affected_pages": [
+      "Dashboard",
+      "Memory",
+      "Commands",
+      "Workflows",
+      "Pet Studio",
+      "Activity"
+    ],
+    "geometry_cases": 12,
+    "widths": [
+      1600,
+      850
+    ],
+    "visual_captures": 126,
+    "full_suite": 1226,
+    "source_self_test": true,
+    "frozen_self_test": true,
+    "installer_self_test": true
+  }
+}

@@ -10,8 +10,8 @@ from src.services.youtube_automation import YouTubeAutomationService
 
 @pytest.mark.parametrize('phrase,handler,target', [
     ('search for husky pictures', 'search_web', 'husky pictures'),
-    ('play shape of you on youtube', 'play_youtube', 'shape of you'),
-    ('youtube play faded', 'play_youtube', 'faded'),
+    ('play shape of you on youtube', 'play_music', 'shape of you'),
+    ('youtube play faded', 'play_music', 'faded'),
 ])
 def test_browser_commands_reach_launcher_without_storing_queries(tmp_path, phrase, handler, target):
     launcher = MagicMock()
@@ -19,7 +19,7 @@ def test_browser_commands_reach_launcher_without_storing_queries(tmp_path, phras
     core = ApplicationCore(tmp_path, launcher)
     try:
         assert core.execute(phrase)['success']
-        getattr(launcher, handler).assert_called_once_with(target)
+        getattr(launcher, handler).assert_called_once_with(target, **({'provider': 'youtube', 'open_mode': 'auto'} if handler == 'play_music' else {}))
         assert target not in str(core.history())
     finally:
         core.close()
@@ -43,11 +43,11 @@ def test_controller_browser_runs_off_main_thread_and_updates_history(qtbot, tmp_
     release = threading.Event()
     started = threading.Event()
     launcher = MagicMock()
-    def play(target):
+    def play(target, **preferences):
         started.set()
         assert release.wait(5)
         return True, 'Playback opened'
-    launcher.play_youtube.side_effect = play
+    launcher.play_music.side_effect = play
     core = ApplicationCore(tmp_path, launcher)
     controller = ApplicationController(core)
     try:
@@ -59,7 +59,7 @@ def test_controller_browser_runs_off_main_thread_and_updates_history(qtbot, tmp_
         release.set()
         qtbot.waitUntil(lambda: bool(core.history()), timeout=5000)
         assert core.history()[0]['execution_status'] == 'success'
-        launcher.play_youtube.assert_called_once_with('example')
+        launcher.play_music.assert_called_once_with('example', provider='youtube', open_mode='auto')
         qtbot.waitUntil(lambda: not controller._browser_workers, timeout=5000)
     finally:
         release.set()

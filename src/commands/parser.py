@@ -6,7 +6,7 @@ without altering the Command model or Executor.
 import re
 from abc import ABC, abstractmethod
 from .model import Command, ActionType
-from .interpreter.patterns import APPLICATION_ALIASES, SEARCH_PREFIXES, MUSIC_PREFIXES, HELP_PHRASES
+from .interpreter.patterns import APPLICATION_ALIASES, SEARCH_PREFIXES, MUSIC_PREFIXES, HELP_PHRASES, music_request
 from ..config.settings import settings
 from ..utils.logger import get_logger
 
@@ -68,24 +68,11 @@ class RuleBasedCommandParser(BaseCommandParser):
                         raw_input=text,
                     )
 
-        # 4. Check for play music / YouTube triggers
-        music_prefixes = tuple(prefix + ' ' for prefix in MUSIC_PREFIXES)
-        if cleaned in ("play", "play song", "play music"):
-            logger.info("Resolved to empty PLAY_MUSIC command.")
-            return Command(action=ActionType.PLAY_MUSIC, target="", raw_input=text)
-
-        for m_prefix in music_prefixes:
-            if cleaned.startswith(m_prefix):
-                song_candidate = cleaned[len(m_prefix):].strip()
-                if song_candidate.endswith(" on youtube"):
-                    song_candidate = song_candidate[:-11].strip()
-                if song_candidate:
-                    logger.info('Resolved to PLAY_MUSIC.')
-                    return Command(
-                        action=ActionType.PLAY_MUSIC,
-                        target=song_candidate,
-                        raw_input=text,
-                    )
+        music = music_request(cleaned)
+        if music is not None:
+            provider, song = music
+            return Command(action=ActionType.PLAY_MUSIC, target=song, raw_input=text,
+                           parameters={'provider': provider} if provider else {})
 
         # 5. Check for verb prefixes (e.g., 'open chrome', 'launch notepad')
         target_candidate = cleaned

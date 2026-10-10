@@ -114,3 +114,48 @@ def memory_forget_target(phrase):
         return memory_target(explicit[1]) or _explicit_alias(explicit[1])
     match = re.fullmatch(r'forget\s+(.+)', phrase)
     return memory_target(match[1]) if match else None
+
+
+def memory_panel_query(phrase):
+    """Anchored requests for saved passwords/cards; no retrieval or fuzzy matching."""
+    from .models import CommandIntent, IntentType
+
+    request = re.sub(r"^(?:what is|what's|tell me|show me|show|recall|get|give me)\s+", '', phrase)
+    request = re.sub(r'^(?:list|display)\s+', '', request)
+    request = re.sub(r'^all\s+', '', request)
+    request = re.sub(r'^(?:my|the)\s+', '', request)
+    password_lists = {'passwords', 'saved passwords', 'all passwords'}
+    card_lists = {'cards', 'card details', 'credit cards', 'debit cards',
+                  'credit card details', 'debit card details',
+                  'credit and debit cards', 'credit and debit card details'}
+    if request in password_lists | card_lists:
+        kind = 'password' if request in password_lists else 'card'
+        return CommandIntent(IntentType.MEMORY_QUERY, kind, source='memory_panel', action='LIST')
+    # Do not treat searches, storage, or launch commands as credential lookups.
+    if re.match(r'^(?:search|find|open|launch|start|save|remember|forget|delete|remove)\b', request):
+        return None
+    field = None
+    kind = None
+    target = None
+    match = re.fullmatch(r"(?:my\s+)?(.+?)(?:['’]s)?\s+password", request)
+    if match:
+        kind, target = 'password', match[1]
+    else:
+        match = re.fullmatch(r'password\s+(?:for|of)\s+(?:my\s+)?(.+)', request)
+        if match:
+            kind, target = 'password', match[1]
+    if kind is None:
+        field_match = re.fullmatch(r'(card number|cvv|cvc|expiry|expiry date|expiration date)\s+(?:for|of)\s+(?:my\s+)?(.+)', request)
+        suffix_match = re.fullmatch(r"(?:my\s+)?(.+?)(?:['’]s)?\s+(card number|cvv|cvc|expiry|expiry date|expiration date)", request)
+        if field_match or suffix_match:
+            label, target = (field_match[1], field_match[2]) if field_match else (suffix_match[2], suffix_match[1])
+            field = 'card_number' if label == 'card number' else 'cvv' if label in ('cvv', 'cvc') else 'expiry'
+            kind = 'card'
+        else:
+            match = re.fullmatch(r"(?:my\s+)?(.+?)(?:['’]s)?\s+card(?:\s+details)?", request)
+            if match:
+                kind, target = 'card', match[1]
+    if not kind or not target or len(target) > 200:
+        return None
+    return CommandIntent(IntentType.MEMORY_QUERY, target, source='memory_panel', action='LOOKUP',
+                         filters=(('kind', kind), ('field', field or '')))

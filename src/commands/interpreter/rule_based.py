@@ -2,9 +2,9 @@
 from .base import IntentInterpreter
 from .models import CommandIntent, InterpretationResult, IntentType, MatchReason
 from .normalizer import normalize_input
-from .memory_rules import PREFERENCE_TARGETS, memory_store_parts, memory_query_target, memory_forget_target
+from .memory_rules import PREFERENCE_TARGETS, memory_store_parts, memory_query_target, memory_forget_target, memory_panel_query
 from .patterns import (APPLICATION_ALIASES, WEBSITE_ALIASES, OPEN_VERBS,
-                       LOW_CONFIDENCE_ALIASES, SEARCH_PREFIXES, MUSIC_PREFIXES, HELP_PHRASES)
+                       LOW_CONFIDENCE_ALIASES, SEARCH_PREFIXES, MUSIC_PREFIXES, HELP_PHRASES, music_request)
 from ..voice_phrases import NAME_ALIASES
 from .file_rules import file_intent
 
@@ -37,6 +37,9 @@ class RuleBasedIntentInterpreter(IntentInterpreter):
         if memory:
             target, memory_type, value = memory
             return self._match(IntentType.MEMORY_STORE, target, value, memory_type=memory_type)
+        panel = memory_panel_query(phrase)
+        if panel:
+            return InterpretationResult(True, panel, reason=MatchReason.SMART_MATCH, confidence=1.0)
         query = memory_query_target(phrase)
         if query:
             return self._match(IntentType.MEMORY_QUERY, query[0], memory_type=query[1])
@@ -45,15 +48,21 @@ class RuleBasedIntentInterpreter(IntentInterpreter):
             return self._match(IntentType.MEMORY_FORGET, forgotten[0], memory_type=forgotten[1])
         if local:
             return InterpretationResult(True, local, reason=MatchReason.SMART_MATCH, confidence=1.0)
+        music = music_request(phrase)
+        if music is not None:
+            provider, song = music
+            result = self._match(IntentType.PLAY_MEDIA, provider or 'youtube', song)
+            if provider is None:
+                from dataclasses import replace
+                result = replace(result, intent=replace(result.intent, source='music_default'))
+            return result
         # A longer command prefix with no payload must not match a shorter one.
         if phrase in SEARCH_PREFIXES + MUSIC_PREFIXES:
             return InterpretationResult()
-        for kind, prefixes in ((IntentType.WEB_SEARCH, SEARCH_PREFIXES), (IntentType.PLAY_MEDIA, MUSIC_PREFIXES)):
+        for kind, prefixes in ((IntentType.WEB_SEARCH, SEARCH_PREFIXES),):
             for prefix in prefixes:
                 if phrase.startswith(prefix + ' '):
                     value = phrase[len(prefix):].strip()
-                    if kind == IntentType.PLAY_MEDIA and value.endswith(' on youtube'):
-                        value = value[:-11].strip()
                     if value:
                         return self._match(kind, 'google' if kind == IntentType.WEB_SEARCH else 'youtube', value)
         candidate = None

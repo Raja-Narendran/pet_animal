@@ -46,11 +46,11 @@ class Settings:
     VOICE_PHRASE_LIMIT_S: int = 60      # Safety limit; never execute a truncated phrase
     VOICE_MODE: str = 'google'
     GOOGLE_VOICE_LANGUAGE: str = 'en-IN'
-    VOICE_MULTILINGUAL: bool = False    # False: Fast English (Vosk Streaming); True: Multilingual (Whisper)
+    VOICE_MULTILINGUAL: bool = False    # Multilingual (Whisper)
     VOICE_BEAM_SIZE: int = 1            # Greedy search for fast decoding
     VOICE_SILENCE_S: float = 1.5        # Minimum final silence before recognition
     VOICE_MULTILINGUAL_MODEL_DIR: Path = field(default_factory=lambda: _get_base_dir() / 'assets/speech/whisper-small')
-    VOICE_MODEL_DIR: Path = field(default_factory=lambda: _get_base_dir() / 'assets/speech/vosk-model-small-en-us-0.15')
+    VOICE_MODEL_DIR: Path | None = None
     VOICE_DEVICE_INDEX: int | None = None  # Default Windows input device
     
     # Sprite State Mapping
@@ -68,6 +68,7 @@ class Settings:
     SUPPORTED_URLS: Dict[str, str] = field(default_factory=lambda: {
         "youtube": "https://www.youtube.com",
         "google": "https://www.google.com",
+        "spotify": "https://open.spotify.com",
     })
     
     # Search & YouTube Playback Settings

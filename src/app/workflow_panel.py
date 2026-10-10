@@ -4,30 +4,12 @@ import re
 import sqlite3
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QFormLayout, QFrame,
-    QLabel, QLineEdit, QPlainTextEdit, QCheckBox, QPushButton, QListWidget, QListWidgetItem,
-    QComboBox, QDoubleSpinBox, QFileDialog, QMessageBox, QAbstractItemView, QSplitter, QGridLayout, QBoxLayout)
+from PyQt6.QtWidgets import QWidget, QListWidgetItem, QFileDialog, QMessageBox, QBoxLayout
+from .manager_ui.icons import icon
+from .manager_ui.theme import PALETTES, notice_style
 from ..core.workflows import STEP_LABELS
 from ..core.shortcuts import APPLICATION_NAMES
 from ..services.windows_launcher import WindowsLauncher
-
-ICONS = {'application': '▣', 'url': '↗', 'folder': '▤', 'file': '▧', 'wait': '◷', 'message': '☏'}
-COLORS = {'running': '#3368A0', 'success': '#23835B', 'failed': '#D54848', 'cancelled': '#A46D1B'}
-
-
-def text_label(text):
-    label = QLabel(text)
-    label.setTextFormat(Qt.TextFormat.PlainText)
-    label.setWordWrap(True)
-    return label
-
-
-def action(text, callback):
-    button = QPushButton(text)
-    button.setMinimumHeight(36)
-    button.clicked.connect(callback)
-    return button
-
 
 class WorkflowPanel(QWidget):
     def __init__(self, manager):
@@ -38,122 +20,8 @@ class WorkflowPanel(QWidget):
         self.dirty = False
         self.loading = False
         self.result = None
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        title = text_label('Workflows')
-        title.setObjectName('heading')
-        root.addWidget(title)
-        root.addWidget(text_label('Build your routine once. Start it with a phrase or the Run button.'))
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter = splitter
-        self.compact = None
-        root.addWidget(splitter, 1)
-        library = QWidget()
-        self.library = library
-        lib = QVBoxLayout(library)
-        self.search = QLineEdit()
-        self.search.setPlaceholderText('Search routines')
-        self.search.textChanged.connect(self.refresh_library)
-        lib.addWidget(self.search)
-        self.routines = QListWidget()
-        self.routines.currentItemChanged.connect(self.select_routine)
-        lib.addWidget(self.routines, 1)
-        self.new_button = action('New routine', lambda: self.new_draft())
-        self.template_button = action('Start Work template', self.template)
-        self.duplicate_button = action('Duplicate', self.duplicate)
-        self.delete_button = action('Delete', self.delete)
-        self.toggle_button = action('Enable / Disable', self.toggle)
-        self.library_actions = (self.new_button, self.template_button, self.duplicate_button, self.delete_button, self.toggle_button)
-        self.library_buttons = QGridLayout()
-        for i, button in enumerate(self.library_actions):
-            self.library_buttons.addWidget(button, i, 0)
-        lib.addLayout(self.library_buttons)
-        splitter.addWidget(library)
-        right = QWidget()
-        layout = QVBoxLayout(right)
-        bar = QHBoxLayout()
-        self.save_button = action('Save', self.save)
-        self.run_button = action('▶ Run', self.run)
-        self.stop_button = action('■ Stop', self.controller.stop_routine)
-        for button in (self.save_button, self.run_button, self.stop_button):
-            bar.addWidget(button)
-        bar.addStretch()
-        layout.addLayout(bar)
-        self.editor = QWidget()
-        edit = QVBoxLayout(self.editor)
-        edit.setContentsMargins(0, 0, 0, 0)
-        form = QFormLayout()
-        self.name = QLineEdit()
-        self.name.setMaxLength(150)
-        self.name.setPlaceholderText('Routine name')
-        self.phrases = QPlainTextEdit()
-        self.phrases.setMaximumHeight(72)
-        self.phrases.setPlaceholderText('Trigger phrases, one per line\nstart work')
-        self.enabled = QCheckBox('Enabled')
-        form.addRow('Name', self.name)
-        form.addRow('Phrases', self.phrases)
-        form.addRow('', self.enabled)
-        edit.addLayout(form)
-        body = QHBoxLayout()
-        self.body_layout = body
-        canvas = QFrame()
-        canvas.setObjectName('card')
-        flow = QVBoxLayout(canvas)
-        trigger = text_label('◉  Trigger phrase\n↓')
-        trigger.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        flow.addWidget(trigger)
-        self.canvas = QListWidget()
-        self.canvas.setMinimumHeight(280)
-        self.canvas.setWordWrap(True)
-        self.canvas.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.canvas.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        self.canvas.setDefaultDropAction(Qt.DropAction.MoveAction)
-        self.canvas.currentRowChanged.connect(self.select_step)
-        self.canvas.model().rowsMoved.connect(self.reordered)
-        flow.addWidget(self.canvas, 1)
-        done = text_label('↓\n◎  Done')
-        done.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        flow.addWidget(done)
-        self.add_step_button = action('+ Add Step', self.add_step)
-        flow.addWidget(self.add_step_button)
-        move = QHBoxLayout()
-        move.addWidget(action('Move Up', lambda: self.move_step(-1)))
-        move.addWidget(action('Move Down', lambda: self.move_step(1)))
-        move.addWidget(action('Remove', self.remove_step))
-        flow.addLayout(move)
-        body.addWidget(canvas, 3)
-        self.settings = QFrame()
-        self.settings.setObjectName('card')
-        self.step_form = QFormLayout(self.settings)
-        self.step_form.addRow(text_label('Step settings'))
-        self.type = QComboBox()
-        for kind, label in STEP_LABELS.items():
-            self.type.addItem(label, kind)
-        self.application = QComboBox()
-        self.value = QLineEdit()
-        self.browse = action('Choose folder…', self.choose_path)
-        self.seconds = QDoubleSpinBox()
-        self.seconds.setRange(0, 90)
-        self.seconds.setDecimals(2)
-        self.seconds.setSuffix(' seconds')
-        self.step_form.addRow('Action', self.type)
-        self.step_form.addRow('Application', self.application)
-        self.step_form.addRow('Target / message', self.value)
-        self.url_hint = text_label('Enter a website such as example.com or https://example.com. HTTPS is used automatically.')
-        self.step_form.addRow(self.url_hint)
-        self.file_hint = text_label('Opens with the default Windows app for this file.')
-        self.step_form.addRow(self.file_hint)
-        self.step_form.addRow(self.browse)
-        self.step_form.addRow('Wait', self.seconds)
-        body.addWidget(self.settings, 2)
-        edit.addLayout(body, 1)
-        layout.addWidget(self.editor, 1)
-        self.notice = text_label('Create a routine or choose one from the list.')
-        layout.insertWidget(1, self.notice)
-        self.progress = text_label('')
-        layout.addWidget(self.progress)
-        splitter.addWidget(right)
-        splitter.setSizes([220, 700])
+        from .manager_ui.workflow_view import build
+        build(self)
         self.name.textChanged.connect(self.mark_dirty)
         self.phrases.textChanged.connect(self.mark_dirty)
         self.enabled.toggled.connect(self.mark_dirty)
@@ -168,22 +36,27 @@ class WorkflowPanel(QWidget):
         if self.compact == compact:
             return
         self.compact = compact
+        self.header_row.set_compact(compact)
+        self.library.setMaximumWidth(16777215 if compact else 260)
         self.splitter.setOrientation(Qt.Orientation.Vertical if compact else Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
         self.body_layout.setDirection(QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight)
-        self.library.setMaximumHeight(320 if compact else 16777215)
+        self.library.setMaximumHeight(420 if compact else 16777215)
         self.routines.setMaximumHeight(90 if compact else 16777215)
         self.routines.setMinimumHeight(70 if compact else 0)
-        self.settings.setMaximumHeight(220 if compact else 16777215)
+        self.settings.setMaximumHeight(16777215)
         for button in self.library_actions:
             self.library_buttons.removeWidget(button)
         for i, button in enumerate(self.library_actions):
             self.library_buttons.addWidget(button, i // 2 if compact else i, i % 2 if compact else 0)
-        self.splitter.setSizes([280, 800] if compact else [210, 680])
+        self.splitter.setSizes([350, 1000] if compact else [220, 700])
 
     def show_notice(self, message, *, error=False):
         self.notice.setText(message)
-        self.notice.setStyleSheet('color: ' + COLORS['failed'] + '; font-weight: 600;' if error else '')
+        self.notice.setProperty('error', error)
+        self.notice.setStyleSheet(notice_style(self.core.app_settings()['theme'], error))
+        self.notice.style().unpolish(self.notice)
+        self.notice.style().polish(self.notice)
         if error:
             self.manager.content_scroll.ensureWidgetVisible(self.notice)
 
@@ -194,8 +67,10 @@ class WorkflowPanel(QWidget):
             self.update_controls()
 
     def refresh(self):
+        self.notice.setStyleSheet(notice_style(self.core.app_settings()['theme'], self.notice.property('error')))
         self.refresh_library()
         self.refresh_applications()
+        self.render_canvas(self.canvas.currentRow())
         self.update_controls()
 
     def refresh_library(self, *_):
@@ -309,6 +184,7 @@ class WorkflowPanel(QWidget):
         return self.steps[row] if 0 <= row < len(self.steps) else None
 
     def render_canvas(self, selected=0):
+        self.step_count.setText(f"Step limit: {len(self.steps)} / 50")
         self.canvas.blockSignals(True)
         self.canvas.clear()
         for i, step in enumerate(self.steps):
@@ -319,10 +195,11 @@ class WorkflowPanel(QWidget):
             if step['type'] == 'wait':
                 value = str(value) + ' seconds'
             status = self.result.steps[i].status if self.result and i < len(self.result.steps) else 'pending'
-            item = QListWidgetItem(f"{ICONS[step['type']]}  {i + 1}. {STEP_LABELS[step['type']]}  ·  {status}\n{str(value)[:90] or 'Choose a target'}" + ('\n                 ↓' if i < len(self.steps) - 1 else ''))
+            item = QListWidgetItem(f"{i + 1}. {STEP_LABELS[step['type']]}  ·  {status}\n{str(value)[:90] or 'Choose a target'}" + ('\n                 ↓' if i < len(self.steps) - 1 else ''))
             item.setData(Qt.ItemDataRole.UserRole, copy.deepcopy(step))
-            if status in COLORS:
-                item.setForeground(QColor(COLORS[status]))
+            if status in ('running', 'success', 'failed', 'cancelled'):
+                item.setForeground(QColor(PALETTES[self.core.app_settings()['theme']][{'running':'accent', 'success':'success', 'failed':'danger', 'cancelled':'warning'}[status]]))
+            item.setIcon(icon({'application':'computer', 'url':'arrow_forward', 'folder':'folder_open', 'file':'description', 'wait':'timer', 'message':'chat_bubble'}[step['type']], PALETTES[self.core.app_settings()['theme']]['accent']))
             self.canvas.addItem(item)
         self.canvas.setCurrentRow(min(selected, len(self.steps) - 1))
         self.canvas.blockSignals(False)
@@ -370,7 +247,7 @@ class WorkflowPanel(QWidget):
         self.result = None
         row = self.canvas.currentRow()
         self.canvas.item(row).setData(Qt.ItemDataRole.UserRole, copy.deepcopy(step))
-        self.canvas.item(row).setText(f"{ICONS[step['type']]}  {row + 1}. {STEP_LABELS[step['type']]}\n{step['value']}" + ('\n                 ↓' if row < len(self.steps) - 1 else ''))
+        self.canvas.item(row).setText(f"{row + 1}. {STEP_LABELS[step['type']]}\n{step['value']}" + ('\n                 ↓' if row < len(self.steps) - 1 else ''))
         self.mark_dirty()
 
     def choose_path(self):

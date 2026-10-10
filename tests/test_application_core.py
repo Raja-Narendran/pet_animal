@@ -215,7 +215,7 @@ def test_history_stats_and_clear(core):
     assert len(core.history('success')) == 1
     core.clear_history()
     assert core.stats()['today'] == 0
-    assert core.stats()['commands'] == 7
+    assert core.stats()['commands'] == 8
 
 
 def test_two_windows_share_configuration_and_close_independently(core, qapp, monkeypatch):
@@ -325,10 +325,14 @@ def test_voice_mode_settings_toggle_and_validation(core, qapp, monkeypatch):
         core.save_settings(cfg)
         assert settings.VOICE_MULTILINGUAL is True
 
-        # Switch back to english -> Vosk
-        cfg['voice_mode'] = 'english'
+        # Switch back to google
+        cfg['voice_mode'] = 'google'
         core.save_settings(cfg)
         assert settings.VOICE_MULTILINGUAL is False
+
+        # Switch to english raises ValueError since Vosk is removed
+        with pytest.raises(ValueError, match='Invalid voice mode'):
+            core.save_settings(dict(cfg, voice_mode='english'))
 
         # Invalid voice_mode raises ValueError
         with pytest.raises(ValueError, match='Invalid voice mode'):
@@ -382,29 +386,31 @@ def test_google_voice_settings_compatibility(core):
     config = core.app_settings()
     assert config['voice_mode'] == 'google'
     assert config['google_voice_language'] == 'en-IN'
-    for mode in ('google', 'english', 'multilingual'):
+    for mode in ('google', 'multilingual'):
         core.save_settings(dict(config, voice_mode=mode, google_voice_language='ta-IN'))
         assert core.app_settings()['voice_mode'] == mode
         assert core.app_settings()['google_voice_language'] == 'ta-IN'
     with pytest.raises(ValueError, match='Google voice language'):
         core.save_settings(dict(config, google_voice_language='invalid'))
-    legacy = dict(config, voice_mode='english')
-    del legacy['google_voice_language']
-    core.save_settings(legacy)
-    assert core.app_settings()['voice_mode'] == 'english'
+    core.db.execute("INSERT OR REPLACE INTO app_settings VALUES ('voice_mode', '\"english\"')")
+    core.db.execute("DELETE FROM app_settings WHERE key='google_voice_language'")
+    core.db.commit()
+    assert core.app_settings()['voice_mode'] == 'google'
     assert core.app_settings()['google_voice_language'] == 'en-IN'
     payload = core.export_configuration()
+    payload['settings']['voice_mode'] = 'english'
     del payload['settings']['google_voice_language']
     payload['commands'] = []  # Import is append-only; avoid duplicating seeded phrases.
     core.import_configuration(payload)
-    assert core.app_settings()['voice_mode'] == 'english'
+    assert core.app_settings()['voice_mode'] == 'google'
     assert core.app_settings()['google_voice_language'] == 'en-IN'
-    core.db.execute("DELETE FROM app_settings WHERE key='google_voice_language'")
-    core.db.commit()
+    core.save_settings(dict(config, voice_mode='multilingual', google_voice_language='ta-IN'))
     backup = core.backup()
-    core.save_settings(dict(config, google_voice_language='ta-IN'))
+    with sqlite3.connect(backup) as db:
+        db.execute("INSERT OR REPLACE INTO app_settings VALUES ('voice_mode', '\"english\"')")
+        db.execute("DELETE FROM app_settings WHERE key='google_voice_language'")
     core.restore(backup)
-    assert core.app_settings()['voice_mode'] == 'english'
+    assert core.app_settings()['voice_mode'] == 'google'
     assert core.app_settings()['google_voice_language'] == 'en-IN'
 
 
@@ -423,7 +429,7 @@ def test_google_settings_selector_and_saved_language(core, qapp, monkeypatch):
                       if w.text() == 'Sends recorded audio to Google; requires internet')
         assert engine.currentData() == 'google'
         assert not language.isHidden() and not notice.isHidden()
-        engine.setCurrentIndex(engine.findData('english'))
+        engine.setCurrentIndex(engine.findData('multilingual'))
         assert language.isHidden() and notice.isHidden()
         engine.setCurrentIndex(engine.findData('google'))
         language.setCurrentIndex(language.findData('ta-IN'))

@@ -1,47 +1,21 @@
-"""Native Manager with seven pages, shared services, and Figma-inspired tokens."""
+"""Native Manager with seven pages, shared services, and Stitch design tokens."""
 import json
 import re
 from datetime import datetime
 from pathlib import Path
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
-    QPushButton, QListWidget, QScrollArea, QFrame, QTableWidget, QTableWidgetItem,
-    QHeaderView, QAbstractItemView, QLineEdit, QComboBox, QDialog, QFormLayout,
-    QLayout, QDialogButtonBox, QTextEdit, QPlainTextEdit, QCheckBox, QFileDialog,
-    QMessageBox, QProgressBar, QSlider)
-from ..core.application import DEFAULT_PET
+from PyQt6.QtCore import QSize
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel, QListWidgetItem, QListWidget, QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QLineEdit, QComboBox, QDialog, QFormLayout, QLayout, QDialogButtonBox, QTextEdit, QCheckBox, QFileDialog, QMessageBox, QSizePolicy
 from ..core.memory import MemoryConflict
-from ..config.settings import settings
-from .software_discovery import SoftwareDiscoveryState, SoftwareDiscoveryPanel
+from .software_discovery import SoftwareDiscoveryState
+from .manager_ui.widgets import ComboBox as QComboBox
+from .manager_ui.preview import SpritePreview
+from .manager_ui import pages
+from .manager_ui.theme import PALETTES, stylesheet, load_font
+from .manager_ui.icons import icon, apply_icons, NAV_ICONS
+from .manager_ui.widgets import label, button, card, heading, FlowLayout
 
 
-PALETTES = {
-    'light': dict(background='#F7F9FC', surface='#FFFFFF', text='#1F2937', muted='#64748B', border='#E2E8F0', selection='#D1D5DB'),
-    'dark': dict(background='#111827', surface='#1F2937', text='#F7F9FC', muted='#A6B5C9', border='#374151', selection='#4B5563'),
-}
 PAGES = ['Dashboard', 'Memory', 'Commands', 'Workflows', 'Pet Studio', 'Activity', 'Settings']
-
-
-def label(value, role=''):
-    item = QLabel(value)
-    item.setWordWrap(True)
-    item.setTextFormat(Qt.TextFormat.PlainText)
-    item.setObjectName(role)
-    return item
-
-
-def button(title, callback, primary=False, icon=None):
-    item = QPushButton(title)
-    item.setCursor(Qt.CursorShape.PointingHandCursor)
-    item.setMinimumHeight(40)
-    item.setObjectName('primary' if primary else '')
-    if icon:
-        icon_path = settings.BASE_DIR / 'assets/ui' / (icon + ('-white' if primary and (settings.BASE_DIR / 'assets/ui' / f'{icon}-white.svg').exists() else '') + '.svg')
-        item.setIcon(QIcon(str(icon_path)))
-        item.setIconSize(QSize(16, 16))
-    item.clicked.connect(callback)
-    return item
 
 
 class ManagerWindow(QMainWindow):
@@ -61,7 +35,13 @@ class ManagerWindow(QMainWindow):
         self.activity_status = self.activity_date = ''
         self.activity_command = None
         self.workflows_panel = None
+        self.responsive_rows = []
+        self.page_subscriptions = []
+        self.command_query = ""
+        self.command_type = self.command_state = None
+        load_font()
         root = QWidget()
+        root.setObjectName("managerBackground")
         self.setCentralWidget(root)
         shell = QHBoxLayout(root)
         shell.setContentsMargins(0, 0, 0, 0)
@@ -70,24 +50,36 @@ class ManagerWindow(QMainWindow):
         sidebar.setObjectName('sidebar')
         sidebar.setFixedWidth(210)
         nav = QVBoxLayout(sidebar)
-        nav.setContentsMargins(20, 28, 20, 20)
-        nav.addWidget(label('PET ANIMAL', 'brand'))
+        nav.setContentsMargins(12, 32, 12, 16)
+        brand = QWidget()
+        brand_row = QHBoxLayout(brand)
+        brand_row.setContentsMargins(0, 0, 0, 0)
+        paw = QLabel()
+        paw.setProperty('iconName', 'pets')
+        paw.setProperty('iconSize', 28)
+        brand_row.addWidget(paw)
+        brand_row.addWidget(label('PET ANIMAL', 'brand'), 1)
+        nav.addWidget(brand)
         nav.addWidget(label('Your desktop companion', 'muted'))
         nav.addSpacing(28)
         self.navigation = QListWidget()
-        self.navigation.addItems(PAGES)
+        self.navigation.setObjectName("managerNavigation")
+        self.navigation.setIconSize(QSize(20, 20))
+        for name in PAGES:
+            self.navigation.addItem(QListWidgetItem(name))
         self.navigation.currentRowChanged.connect(self.navigate)
         nav.addWidget(self.navigation)
-        nav.addWidget(button('Open floating pet', self.controller.show_pet, True))
+        nav.addWidget(button('Open floating pet', self.controller.show_pet, True, 'pets'))
         shell.addWidget(sidebar)
         scroll = QScrollArea()
         self.content_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.content = QWidget()
+        self.content.setObjectName("managerContent")
         self.content_layout = QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(36, 32, 36, 36)
-        self.content_layout.setSpacing(20)
+        self.content_layout.setContentsMargins(24, 32, 24, 24)
+        self.content_layout.setSpacing(16)
         self.content_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         scroll.setWidget(self.content)
         shell.addWidget(scroll, 1)
@@ -96,9 +88,22 @@ class ManagerWindow(QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        for row in getattr(self, "responsive_rows", []):
+            row.set_compact(self.width() < 1100)
         panel = getattr(self, "workflows_panel", None)
         if panel is not None:
             panel.set_compact(self.width() < 1100)
+
+    def hideEvent(self, event):
+        for preview in self.findChildren(SpritePreview):
+            preview.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        for preview in self.findChildren(SpritePreview):
+            if preview.isVisibleTo(self) and preview.animated and len(preview.frames) > 1:
+                preview.timer.start()
 
     def closeEvent(self, event):
         event.ignore()
@@ -122,67 +127,42 @@ class ManagerWindow(QMainWindow):
         self.core.save_settings(config)
 
     def refresh(self):
-        palette = PALETTES[self.core.app_settings()['theme']]
-        self.setStyleSheet('''
-            QWidget {background: %(background)s; color: %(text)s; font-family: 'Segoe UI'; font-size: 13px;}
-            QFrame#sidebar, QFrame#card {background: %(surface)s; border: 1px solid %(border)s; border-radius: 16px;}
-            QFrame#sidebar {border-radius:0;}
-            QFrame#card QLabel, QFrame#sidebar QLabel {background: transparent;}
-            QLabel#brand {font-size:20px; font-weight:700; color:#3368A0;}
-            QLabel#heading {font-size:28px; font-weight:700;}
-            QLabel#subheading {font-size:17px; font-weight:600;}
-            QLabel#metric {font-size:30px; font-weight:700;}
-            QLabel#muted {color:%(muted)s; font-size:12px;}
-            QPushButton {background:%(surface)s; border:1px solid %(border)s; border-radius:10px; padding:10px 14px; font-weight:600;}
-            QPushButton:hover {border-color:#66A3BF;}
-            QPushButton#primary {background:#3368A0; color:white; border-color:#3368A0;}
-            QLineEdit,QTextEdit,QPlainTextEdit,QComboBox,QSpinBox,QDoubleSpinBox {background:%(surface)s; border:1px solid %(border)s; border-radius:8px; padding:8px;}
-            QListWidget {background:transparent; border:0; outline:0;}
-            QListWidget::item {padding:14px; border-radius:10px; margin-bottom:6px;}
-            QListWidget::item:selected {background:#3368A0; color:white;}
-            QTableWidget {background:%(surface)s; border:1px solid %(border)s; border-radius:12px; gridline-color:%(border)s; outline:0; selection-background-color:%(selection)s; selection-color:%(text)s;}
-            QTableWidget::item:selected, QTableWidget::item:selected:!active {background:%(selection)s; color:%(text)s;}
-            QHeaderView::section {background:%(background)s; color:%(muted)s; border:0; padding:12px; font-weight:600;}
-            QProgressBar {background:%(background)s; border:0; border-radius:3px; height:6px;}
-            QProgressBar::chunk {background:#3368A0; border-radius:3px;}
-            QSlider {background: transparent;}
-            QSlider::groove:horizontal {height: 6px; background: %(border)s; border-radius: 3px;}
-            QSlider::sub-page:horizontal {background: #3368A0; border-radius: 3px;}
-            QSlider::handle:horizontal {background: #3368A0; border: 2px solid %(surface)s; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px;}
-            QSlider::handle:horizontal:hover {background: #66A3BF;}
-        ''' % palette)
+        theme = self.core.app_settings()['theme']
+        self.setStyleSheet(stylesheet(theme))
+        for signal, callback in self.page_subscriptions:
+            try:
+                signal.disconnect(callback)
+            except (TypeError, RuntimeError):
+                pass
+        self.page_subscriptions.clear()
+        self.responsive_rows.clear()
+        for index, name in enumerate(NAV_ICONS):
+            self.navigation.item(index).setIcon(icon(name, PALETTES[theme]['accent'], dpr=self.devicePixelRatioF()))
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             if item.widget():
+                for preview in item.widget().findChildren(SpritePreview):
+                    preview.stop()
                 item.widget().hide()
                 if item.widget() is not self.workflows_panel:
                     item.widget().deleteLater()
         getattr(self, 'page_' + self.page.lower().replace(' ', '_'))()
         if self.page != "Workflows":
             self.content_layout.addStretch()
+        apply_icons(self, theme)
 
     def heading(self, title, subtitle, actions=()):
-        widget = QWidget()
-        row = QHBoxLayout(widget)
-        row.setContentsMargins(0, 0, 0, 0)
-        copy = QVBoxLayout()
-        copy.addWidget(label(title, 'heading'))
-        copy.addWidget(label(subtitle, 'muted'))
-        row.addLayout(copy, 1)
-        for action in actions:
-            row.addWidget(action)
-        self.content_layout.addWidget(widget)
+        return heading(self, title, subtitle, actions)
 
     def card(self, title=None):
-        frame = QFrame()
-        frame.setObjectName('card')
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(14)
-        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
-        if title:
-            layout.addWidget(label(title, 'subheading'))
-        return frame, layout
+        return card(title)
+
+    def navigate_to(self, page):
+        self.navigation.setCurrentRow(PAGES.index(page))
+
+    def subscribe_page(self, signal, callback):
+        signal.connect(callback)
+        self.page_subscriptions.append((signal, callback))
 
     def guard(self, callback):
         try:
@@ -202,6 +182,10 @@ class ManagerWindow(QMainWindow):
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setShowGrid(False)
+        table.setWordWrap(False)
+        table.setMinimumWidth(0)
+        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         for index, values in enumerate(rows):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
@@ -212,125 +196,10 @@ class ManagerWindow(QMainWindow):
         return table
 
     def page_dashboard(self):
-        memory = self.core.get_memory_by_key('user.name', consume=False)
-        greeting = 'Welcome back' + (', ' + memory['memory_value'] if memory and not memory['sensitive'] else '')
-        self.heading(greeting, 'A little companion. A more personal workspace.', [
-            button('Add memory', self.edit_memory, icon='brain'),
-            button('New command', self.edit_command, True, 'zap')])
-        stats = self.core.stats()
-        metrics = QWidget()
-        row = QHBoxLayout(metrics)
-        row.setContentsMargins(0, 0, 0, 0)
-        for title, value, subtitle in [('Memory items', stats['memories'], 'Saved on this PC'), ('Registered commands', stats['commands'], 'Phrases you control'), ('Executed today', stats['today'], 'From command history')]:
-            frame, layout = self.card()
-            layout.addWidget(label(title, 'muted'))
-            layout.addWidget(label(str(value), 'metric'))
-            layout.addWidget(label(subtitle, 'muted'))
-            row.addWidget(frame)
-        self.content_layout.addWidget(metrics)
-        frame, layout = self.card('Active companion')
-        profile = self.core.active_profile()
-        image = QLabel()
-        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        image.setMinimumHeight(120)
-        from PyQt6.QtGui import QPixmap
-        pix = QPixmap(str(self.core.asset_path(profile['selected_asset_id'])))
-        image.setPixmap(pix.copy(0, 0, pix.height(), pix.height()).scaled(120, 120, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation))
-        layout.addWidget(image)
-        layout.addWidget(label(profile['name'] + ' · ' + ('On your desktop' if self.controller.pet.isVisible() else 'Resting')))
-        actions = QHBoxLayout()
-        actions.addWidget(button('Launch floating pet', self.controller.show_pet, True))
-        actions.addWidget(button('Hide floating pet', self.controller.hide_pet))
-        layout.addLayout(actions)
-        self.content_layout.addWidget(frame)
-        frame, layout = self.card('Recent activity')
-        records = self.core.history()[:4]
-        if not records:
-            layout.addWidget(label('No commands executed yet. Try a registered phrase with your pet.', 'muted'))
-        for record in records:
-            layout.addWidget(label(f"{self.local_time(record['executed_at'])}    {record['name']}    {record['execution_status'].title()}"))
-        layout.addWidget(button('View all activity', lambda: self.navigation.setCurrentRow(4), icon='arrow-right'))
-        self.content_layout.addWidget(frame)
-        frame, layout = self.card('Memory overview')
-        categories = self.core.categories()
-        memories = self.core.memories()
-        for category in categories:
-            count = sum(m['category_id'] == category['id'] for m in memories)
-            layout.addWidget(label(f"{category['name']}    {count}"))
-            progress = QProgressBar()
-            progress.setRange(0, max(1, len(memories)))
-            progress.setValue(count)
-            progress.setTextVisible(False)
-            progress.setFixedHeight(6)
-            layout.addWidget(progress)
-        layout.addWidget(button('Open memory', lambda: self.navigation.setCurrentRow(1), icon='arrow-right'))
-        self.content_layout.addWidget(frame)
+        return pages.page_dashboard(self)
 
     def page_memory(self):
-        self.heading('Personal memory', 'Your profile, preferences and knowledge, saved locally and under your control.', [button('Add memory', self.edit_memory, True, 'brain')])
-        filters = QWidget()
-        rows = QVBoxLayout(filters)
-        rows.setContentsMargins(0, 0, 0, 0)
-        search_row, filter_row = QHBoxLayout(), QHBoxLayout()
-        self.memory_search = QLineEdit(self.memory_query)
-        self.memory_search.setObjectName('memorySearch')
-        self.memory_search.setPlaceholderText('Search title, key or value…')
-        self.memory_categories = QComboBox()
-        self.memory_categories.addItem('All categories', None)
-        for category in self.core.categories():
-            self.memory_categories.addItem(category['name'], category['id'])
-        self.memory_categories.setCurrentIndex(max(0, self.memory_categories.findData(self.memory_category)))
-        self.memory_scopes = QComboBox()
-        self.memory_scopes.setObjectName('memoryScopes')
-        self.memory_scopes.addItem('All scopes', None)
-        self.memory_scopes.addItem('Global', 'GLOBAL')
-        self.memory_scopes.addItem('Temporary', 'TEMPORARY')
-        self.memory_scopes.setCurrentIndex(max(0, self.memory_scopes.findData(self.memory_scope)))
-        self.memory_states = QComboBox()
-        for title, state in [('All states', None), ('Enabled', 'enabled'), ('Disabled', 'disabled')]:
-            self.memory_states.addItem(title, state)
-        self.memory_states.setCurrentIndex(max(0, self.memory_states.findData(self.memory_state)))
-        self.memory_usage = QComboBox()
-        for title, order in [('Recently updated', 'updated'), ('Recently used', 'recently_used'), ('Most used', 'most_used')]:
-            self.memory_usage.addItem(title, order)
-        self.memory_usage.setCurrentIndex(max(0, self.memory_usage.findData(self.memory_sort)))
-        def filter_rows():
-            self.memory_query = self.memory_search.text()
-            self.memory_category = self.memory_categories.currentData()
-            self.memory_scope = self.memory_scopes.currentData()
-            self.memory_state = self.memory_states.currentData()
-            self.memory_sort = self.memory_usage.currentData()
-            self.guard(self.fill_memories)
-        self.memory_search.textChanged.connect(filter_rows)
-        for choice in (self.memory_categories, self.memory_scopes, self.memory_states, self.memory_usage):
-            choice.currentIndexChanged.connect(filter_rows)
-        search_row.addWidget(self.memory_search, 2)
-        search_row.addWidget(self.memory_categories, 1)
-        for choice in (self.memory_scopes, self.memory_states, self.memory_usage):
-            filter_row.addWidget(choice)
-        rows.addLayout(search_row)
-        rows.addLayout(filter_row)
-        self.content_layout.addWidget(filters)
-        health = self.core.memory_service.memory_health()
-        self.memory_health_label = label(' · '.join(f"{name}: {health[key]}" for name, key in [('Total', 'total'), ('Active', 'active'), ('Disabled', 'disabled'), ('Sensitive', 'sensitive')]), 'muted')
-        self.content_layout.addWidget(self.memory_health_label)
-        self.memory_table = self.table(['Title', 'Category', 'Value', 'Scope', 'Used', 'Enabled'], [])
-        self.memory_table.setObjectName('memoryTable')
-        self.memory_table.setWordWrap(False)
-        self.memory_table.itemSelectionChanged.connect(self.show_selected_memory)
-        self.memory_table.doubleClicked.connect(lambda: self.selected_memory(self.edit_memory))
-        self.content_layout.addWidget(self.memory_table)
-        self.memory_details, self.memory_details_layout = self.card('Memory details')
-        self.content_layout.addWidget(self.memory_details)
-        self.fill_memories()
-        actions = QWidget()
-        row = QHBoxLayout(actions)
-        row.addWidget(button('Safe export', lambda: self.export_json(self.core.export_memories(), 'memories.json')))
-        row.addWidget(button('Import memories', self.import_memory_json))
-        row.addWidget(button('Full encrypted backup', self.backup_memory_database))
-        row.addWidget(button('Clean expired memories', self.clean_expired_memories))
-        self.content_layout.addWidget(actions)
-        self.content_layout.addWidget(label('Safe JSON exports exclude sensitive categories. Full SQLite backups retain values encrypted for this Windows user.', 'muted'))
+        return pages.page_memory(self)
 
     def fill_memories(self):
         state = self.memory_state
@@ -349,6 +218,11 @@ class ManagerWindow(QMainWindow):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setToolTip(str(value))
+                if record['sensitive'] and column == 2:
+                    from PyQt6.QtGui import QColor
+                    color = PALETTES[self.core.app_settings()['theme']]['secure']
+                    item.setForeground(QColor(color))
+                    item.setIcon(icon('lock', color, 16))
                 self.memory_table.setItem(index, column, item)
             self.memory_table.setRowHeight(index, 48)
             if record['id'] == self.memory_selected_id:
@@ -367,9 +241,12 @@ class ManagerWindow(QMainWindow):
             self.guard(lambda: callback(self.memory_records[index]))
 
     def show_selected_memory(self):
+        self.memory_value_revealed = False
         while self.memory_details_layout.count() > 1:
             item = self.memory_details_layout.takeAt(1)
             if item.widget():
+                for preview in item.widget().findChildren(SpritePreview):
+                    preview.stop()
                 item.widget().hide()
                 item.widget().deleteLater()
         index = self.memory_table.currentRow()
@@ -384,6 +261,7 @@ class ManagerWindow(QMainWindow):
         body = QWidget()
         form = QFormLayout(body)
         form.setContentsMargins(0, 0, 0, 0)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.memory_detail_value = QTextEdit()
         self.memory_detail_value.setPlainText(record['memory_value'])
         self.memory_detail_value.setObjectName('memoryDetailValue')
@@ -407,7 +285,7 @@ class ManagerWindow(QMainWindow):
             form.addRow(name, label(value))
         self.memory_details_layout.addWidget(body)
         actions = QWidget()
-        row = QHBoxLayout(actions)
+        row = FlowLayout(actions)
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(button('Edit memory', lambda: self.guard(lambda: self.edit_memory(record))))
         row.addWidget(button('Disable' if record['enabled'] else 'Enable', lambda: self.guard(lambda: self.core.memory_service.update_memory(record['id'], enabled=not bool(record['enabled'])))))
@@ -420,12 +298,17 @@ class ManagerWindow(QMainWindow):
                 self.memory_detail_value.setPlainText('••••••••')
                 self.memory_value_revealed = False
                 self.memory_reveal_button.setText('Reveal value')
+                self.memory_reveal_button.setProperty('iconName', 'visibility')
+                apply_icons(self.memory_details, self.core.app_settings()['theme'])
                 return
             record = self.core.get_memory(memory_id, reveal=True)
             if record:
                 self.memory_detail_value.setPlainText(record['memory_value'])
                 self.memory_value_revealed = True
                 self.memory_reveal_button.setText('Hide value')
+            glyph = 'visibility_off' if self.memory_value_revealed else 'visibility'
+            self.memory_reveal_button.setProperty('iconName', glyph)
+            apply_icons(self.memory_details, self.core.app_settings()['theme'])
         self.guard(reveal)
 
     def _existing_default_titles(self):
@@ -1031,49 +914,7 @@ class ManagerWindow(QMainWindow):
             self.workflows_panel.open_routine(routine_id)
 
     def page_commands(self):
-        self.heading('Commands', 'Registered phrases and natural requests for your enabled actions.', [button('New command', self.edit_command, True, 'zap')])
-        records = self.core.commands()
-        table = self.table(['Command', 'Phrases', 'Enabled'], [(r['name'], ' · '.join(r['phrases']), 'Yes' if r['enabled'] else 'No') for r in records])
-        self.content_layout.addWidget(table)
-        def selected(callback):
-            if table.currentRow() >= 0:
-                self.guard(lambda: callback(records[table.currentRow()]))
-        table.doubleClicked.connect(lambda: selected(self.edit_command))
-        bar = QWidget()
-        row = QHBoxLayout(bar)
-        row.addWidget(button('Edit selected', lambda: selected(self.edit_command)))
-        row.addWidget(button('Edit in Workflows', lambda: selected(lambda r: self.open_workflow(r['target']) if r['action_type'] == 'routine' else None)))
-        row.addWidget(button('Test selected', lambda: selected(lambda r: QMessageBox.information(self, 'Command result', self.controller.execute(r['phrases'][0], self)['message']))))
-        row.addWidget(button('Delete selected', lambda: selected(lambda r: self.confirm('Delete command', 'Delete this command and all its phrases?', lambda: self.core.delete_command(r['id'])))))
-        self.content_layout.addWidget(bar)
-        self.content_layout.addWidget(label('Reserved: help · remember my name as <name> · what is my name. Memory writes require confirmation.', 'muted'))
-        frame, layout = self.card('Test command understanding')
-        self.smart_input = QLineEdit()
-        self.smart_input.setMaxLength(500)
-        self.smart_input.setPlaceholderText('Can you open Chrome please?')
-        self.smart_result = label('Test a phrase to see its meaning. Nothing will be executed.', 'muted')
-        def test_understanding():
-            result = self.core.interpret(self.smart_input.text())
-            intent = result.intent
-            command = next((r for r in self.core.commands() if r['id'] == result.command_id), None)
-            self.smart_result.setText('\n'.join([
-                'Intent: ' + (intent.intent.value if intent else 'UNKNOWN'),
-                'Target: ' + (intent.target or '—' if intent else '—'),
-                'Resolved command: ' + (command['name'] if command else '—'),
-                f'Confidence: {result.confidence:.0%}',
-                'Match: ' + result.reason.value,
-                'Execution: Not executed',
-                *(('File request: ' + json.dumps(intent.to_dict(), ensure_ascii=False),)
-                  if intent and intent.intent.value == 'FILE_SEARCH' else ()),
-            ]))
-        layout.addWidget(self.smart_input)
-        self.smart_test_button = button('Test Understanding', test_understanding)
-        layout.addWidget(self.smart_test_button)
-        layout.addWidget(self.smart_result)
-        self.smart_input.returnPressed.connect(test_understanding)
-        self.content_layout.addWidget(frame)
-        self.software_panel = SoftwareDiscoveryPanel(self)
-        self.content_layout.addWidget(self.software_panel)
+        return pages.page_commands(self)
 
     def edit_command(self, record=None):
         if isinstance(record, bool):
@@ -1123,104 +964,7 @@ class ManagerWindow(QMainWindow):
         dialog.exec()
 
     def page_pet_studio(self):
-        self.heading('Pet Studio', 'Make your companion feel at home.', [button('Import PNG sheet', lambda: self.guard(self.import_pet))])
-        frame, layout = self.card()
-        form = QFormLayout()
-        profiles = QComboBox()
-        records = self.core.profiles()
-        for record in records:
-            profiles.addItem(record['name'] + (' · active' if record['is_active'] else ''), record['id'])
-        active = self.core.active_profile()
-        profiles.setCurrentIndex(profiles.findData(active['id']))
-        assets = QComboBox()
-        for asset in self.core.assets():
-            assets.addItem(asset['name'], asset['id'])
-        name = QLineEdit()
-        controls = {}
-        for key, low, high in [('size', 96, 400), ('chat_width', 260, 600), ('text_size', 10, 24)]:
-            slider = QSlider(Qt.Orientation.Horizontal)
-            slider.setRange(low, high)
-            controls[key] = slider
-        for key in ('always_on_top', 'animations'):
-            controls[key] = QCheckBox()
-        preview = QLabel()
-        preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        preview.setMinimumHeight(180)
-        chat_preview = QLabel('Try “open notepad” or “what is my name”')
-        chat_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        def preview_update():
-            from PyQt6.QtGui import QPixmap, QColor
-            pix = QPixmap(str(self.core.asset_path(assets.currentData())))
-            size = min(200, controls['size'].value())
-            preview.setPixmap(pix.copy(0, 0, pix.height(), pix.height()).scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation))
-            color = QColor(DEFAULT_PET['background'])
-            color.setAlphaF(DEFAULT_PET['opacity'])
-            chat_preview.setStyleSheet(f'background:rgba({color.red()},{color.green()},{color.blue()},{color.alpha()}); color:white; border-radius:{DEFAULT_PET["radius"]}px; padding:12px; font-size:{controls["text_size"].value()}px;')
-            chat_preview.setMaximumWidth(controls['chat_width'].value())
-        def load_profile():
-            record = next(r for r in records if r['id'] == profiles.currentData())
-            name.setText(record['name'])
-            assets.setCurrentIndex(assets.findData(record['selected_asset_id']))
-            for key, field in controls.items():
-                value = record['config'].get(key, DEFAULT_PET.get(key))
-                if isinstance(field, QCheckBox):
-                    field.setChecked(bool(value))
-                elif isinstance(field, QSlider):
-                    field.setValue(int(value))
-            preview_update()
-        form.addRow('Profile', profiles)
-        form.addRow('Pet name', name)
-        form.addRow('Pet image', assets)
-        for key in ('size', 'chat_width', 'text_size'):
-            slider = controls[key]
-            val_label = QLabel(str(slider.value()))
-            val_label.setFixedWidth(36)
-            val_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            slider.valueChanged.connect(lambda val, lbl=val_label: lbl.setText(str(val)))
-            row_widget = QWidget()
-            row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(10)
-            row_layout.addWidget(slider, 1)
-            row_layout.addWidget(val_label)
-            form.addRow(key.replace('_', ' ').title(), row_widget)
-        for key in ('always_on_top', 'animations'):
-            form.addRow(key.replace('_', ' ').title(), controls[key])
-        load_profile()
-        profiles.currentIndexChanged.connect(load_profile)
-        assets.currentIndexChanged.connect(preview_update)
-        for field in controls.values():
-            if isinstance(field, QCheckBox):
-                field.toggled.connect(preview_update)
-            else:
-                field.valueChanged.connect(preview_update)
-        layout.addWidget(preview)
-        layout.addWidget(chat_preview, alignment=Qt.AlignmentFlag.AlignCenter)
-        layout.addLayout(form)
-        def config(existing_id=None):
-            active_coords = None
-            if existing_id:
-                try:
-                    current_rec = next((r for r in self.core.profiles() if r['id'] == existing_id), None)
-                    if current_rec:
-                        active_coords = (current_rec['config'].get('x'), current_rec['config'].get('y'))
-                except Exception:
-                    pass
-            return {
-                'size': controls['size'].value(),
-                'chat_width': controls['chat_width'].value(),
-                'text_size': controls['text_size'].value(),
-                'always_on_top': controls['always_on_top'].isChecked(),
-                'animations': controls['animations'].isChecked(),
-                'radius': DEFAULT_PET['radius'],
-                'background': DEFAULT_PET['background'],
-                'opacity': DEFAULT_PET['opacity'],
-                'x': active_coords[0] if active_coords else DEFAULT_PET['x'],
-                'y': active_coords[1] if active_coords else DEFAULT_PET['y'],
-            }
-        layout.addWidget(button('Save & activate profile', lambda: self.guard(lambda: self.core.save_profile(name.text(), assets.currentData(), config(profiles.currentData()), profiles.currentData())), True))
-        layout.addWidget(button('Save as new profile', lambda: self.guard(lambda: self.core.save_profile(name.text(), assets.currentData(), config()))))
-        self.content_layout.addWidget(frame)
+        return pages.page_pet_studio(self)
 
     def import_pet(self):
         path, _ = QFileDialog.getOpenFileName(self, 'Import horizontal PNG sprite sheet', '', 'PNG images (*.png)')
@@ -1232,130 +976,10 @@ class ManagerWindow(QMainWindow):
         return datetime.fromisoformat(value).astimezone().strftime('%d %b %Y, %H:%M')
 
     def page_activity(self):
-        self.heading('Activity', 'Registered command executions, separate from your memories.', [button('Clear history', lambda: self.confirm('Clear history', 'Permanently clear all command history?', self.core.clear_history))])
-        filters = QWidget()
-        row = QHBoxLayout(filters)
-        status = QComboBox()
-        status.addItems(['All statuses', 'success', 'failed'])
-        status.setCurrentText(self.activity_status or 'All statuses')
-        date = QLineEdit(self.activity_date)
-        date.setPlaceholderText('Local date: YYYY-MM-DD (optional)')
-        command = QComboBox()
-        command.addItem('All commands', None)
-        for record in self.core.commands():
-            command.addItem(record['name'], record['id'])
-        command.setCurrentIndex(max(0, command.findData(self.activity_command)))
-        def apply():
-            self.activity_status = '' if status.currentIndex() == 0 else status.currentText()
-            self.activity_date = date.text().strip()
-            self.activity_command = command.currentData()
-            self.refresh()
-        row.addWidget(status)
-        row.addWidget(command)
-        row.addWidget(date)
-        row.addWidget(button('Filter', apply))
-        self.content_layout.addWidget(filters)
-        records = self.core.history(self.activity_status, self.activity_date, self.activity_command)
-        table = self.table(['Command', 'Phrase', 'Executed', 'Status / reason'], [(r['name'], r['trigger_phrase'], self.local_time(r['executed_at']), r['execution_status'] + (' · ' + r['error_message'] if r['error_message'] else '')) for r in records])
-        self.content_layout.addWidget(table)
-        def details():
-            if table.currentRow() < 0:
-                return
-            record = records[table.currentRow()]
-            runs = self.core.rows('SELECT * FROM workflow_runs WHERE history_id=?', (record['id'],))
-            if not runs:
-                return
-            steps = self.core.rows('SELECT * FROM workflow_step_runs WHERE run_id=? ORDER BY position', (runs[0]['id'],))
-            QMessageBox.information(self, 'Routine run details', runs[0]['name'] + ' · ' + runs[0]['status'] + '\n' + '\n'.join(
-                f"{s['position'] + 1}. {s['step_type']}: {s['status']}" + (' · ' + s['outcome'] if s['outcome'] else '') for s in steps))
-        table.doubleClicked.connect(details)
-        self.content_layout.addWidget(button('Routine run details', details))
+        return pages.page_activity(self)
 
     def page_settings(self):
-        self.heading('Settings', 'Application preferences and local data management.')
-        frame, layout = self.card('General')
-        form = QFormLayout()
-        config = self.core.app_settings()
-        theme = QComboBox()
-        theme.addItems(['light', 'dark'])
-        theme.setCurrentText(config['theme'])
-        form.addRow('Theme', theme)
-        voice_mode = QComboBox()
-        voice_mode.addItem('Only English (Fast Vosk Streaming)', 'english')
-        voice_mode.addItem('Multi-language (Tamil / English Whisper)', 'multilingual')
-        voice_mode.addItem('Google Web Speech (Online)', 'google')
-        current_voice = config.get('voice_mode', 'google')
-        voice_mode.setCurrentIndex(voice_mode.findData(current_voice))
-        form.addRow('Voice Recognition', voice_mode)
-        google_language = QComboBox()
-        google_language.addItem('English (India)', 'en-IN')
-        google_language.addItem('Tamil (India)', 'ta-IN')
-        google_language.setCurrentIndex(google_language.findData(config.get('google_voice_language', 'en-IN')))
-        google_language_label = QLabel('Google language')
-        form.addRow(google_language_label, google_language)
-        google_notice = label('Sends recorded audio to Google; requires internet', 'muted')
-        google_notice.setWordWrap(True)
-        form.addRow(google_notice)
-        def update_google_options():
-            visible = voice_mode.currentData() == 'google'
-            for widget in (google_language_label, google_language, google_notice):
-                widget.setVisible(visible)
-        voice_mode.currentIndexChanged.connect(update_google_options)
-        update_google_options()
-        voice_hotkey = QCheckBox('Enable Ctrl + Windows for voice input')
-        voice_hotkey.setChecked(config.get('voice_hotkey_enabled', False))
-        form.addRow(voice_hotkey)
-        form.addRow(label('Hold Ctrl + Windows to speak. Release either key to submit.', 'muted'))
-        hotkey_status = QLabel('')
-        hotkey_status.setWordWrap(True)
-        hotkey_status.setVisible(False)
-        def update_hotkey_status(status):
-            if not status or 'ready' in status.lower() or status in ('Voice shortcut is disabled.', 'Starting voice shortcut...'):
-                hotkey_status.setText('')
-                hotkey_status.setVisible(False)
-            else:
-                hotkey_status.setText(status)
-                hotkey_status.setVisible(True)
-        update_hotkey_status(getattr(self.controller, 'voice_hotkey_status', ''))
-        self.controller.voice_hotkey_status_changed.connect(update_hotkey_status)
-        form.addRow(hotkey_status)
-        layout.addLayout(form)
-        layout.addWidget(button('Save preferences', lambda: self.guard(lambda: self.core.save_settings(dict(config, theme=theme.currentText(), voice_mode=voice_mode.currentData(), google_voice_language=google_language.currentData(), voice_hotkey_enabled=voice_hotkey.isChecked()))), True))
-        self.content_layout.addWidget(frame)
-        frame, layout = self.card('Local file search')
-        search_config = self.core.file_search_settings()
-        roots = QPlainTextEdit('\n'.join(search_config['roots']))
-        roots.setPlaceholderText('One local folder per line, for example D:\\Projects.\nLeave blank to search local disks.')
-        roots.setMaximumHeight(95)
-        layout.addWidget(label('Search folders (one per line)', 'muted'))
-        layout.addWidget(roots)
-        def add_search_folder():
-            folder = QFileDialog.getExistingDirectory(self, 'Choose a search folder')
-            if folder:
-                roots.appendPlainText(folder)
-        layout.addWidget(button('Add folder', add_search_folder))
-        es_path = QLineEdit(search_config['everything_executable'])
-        es_path.setPlaceholderText('Optional es.exe path; blank uses automatic detection')
-        layout.addWidget(label('Everything command-line client', 'muted'))
-        layout.addWidget(es_path)
-        def choose_es():
-            path, _ = QFileDialog.getOpenFileName(self, 'Choose Everything es.exe', '', 'Everything CLI (es.exe)')
-            if path:
-                es_path.setText(path)
-        layout.addWidget(button('Choose es.exe', choose_es))
-        layout.addWidget(button('Save search settings', lambda: self.guard(lambda: self.core.save_file_search_settings(
-            [line.strip() for line in roots.toPlainText().splitlines() if line.strip()], es_path.text())), True))
-        layout.addWidget(label('Type /package.xml or Find pet folder. Everything and es.exe are optional; Everything must be running. Without them, a bounded background scan searches local filenames. Partial results are marked. Queries and result paths are not saved in command history.', 'muted'))
-        self.content_layout.addWidget(frame)
-        frame, layout = self.card('Data')
-        layout.addWidget(button('Export configuration', lambda: self.export_json(self.core.export_configuration(), 'configuration.json')))
-        layout.addWidget(button('Import configuration', lambda: self.import_json(self.core.import_configuration)))
-        layout.addWidget(button('Export memories', lambda: self.export_json(self.core.export_memories(), 'memories.json')))
-        layout.addWidget(button('Create database backup', lambda: self.guard(lambda: QMessageBox.information(self, 'Backup created', str(self.core.backup())))))
-        layout.addWidget(button('Restore database backup', self.restore_backup))
-        layout.addWidget(button('Clear command history', lambda: self.confirm('Clear history', 'Permanently clear command history?', self.core.clear_history)))
-        layout.addWidget(label('Imports are validated and do not overwrite matching records. Configuration imports switch the active profile and preferences. Restore creates a recovery snapshot first. Imported pet images must remain in the pets folder; encrypted backups require this Windows user.', 'muted'))
-        self.content_layout.addWidget(frame)
+        return pages.page_settings(self)
 
     def export_json(self, payload, filename):
         path, _ = QFileDialog.getSaveFileName(self, 'Export JSON', filename, 'JSON (*.json)')

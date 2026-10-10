@@ -17,7 +17,7 @@ def core(tmp_path):
     launcher.open_application.return_value = (True, 'Opened')
     launcher.open_registered_url.return_value = (True, 'Opened')
     launcher.search_web.return_value = (True, 'Search opened')
-    launcher.play_youtube.return_value = (True, 'Playback opened')
+    launcher.play_music.return_value = (True, 'Playback opened')
     instance = ApplicationCore(tmp_path, launcher)
     yield instance
     instance.close()
@@ -94,12 +94,12 @@ def test_ambiguous_commands_and_low_confidence_need_clarification(core):
     ('Could you search Google for Salesforce DevOps?', 'search_web', 'salesforce devops'),
     ('find Salesforce CI/CD', 'search_web', 'salesforce ci/cd'),
     ('சென்னை weather search பண்ணு', 'search_web', 'சென்னை weather'),
-    ('can you play Shape of You', 'play_youtube', 'shape of you'),
-    ('Shape of You song play pannu', 'play_youtube', 'shape of you'),
+    ('can you play Shape of You', 'play_music', 'shape of you'),
+    ('Shape of You song play pannu', 'play_music', 'shape of you'),
 ])
 def test_browser_uses_existing_service_and_private_history(core, phrase, handler, target):
     assert core.execute(phrase)['success']
-    getattr(core.launcher, handler).assert_called_once_with(target)
+    getattr(core.launcher, handler).assert_called_once_with(target, **({'provider': 'youtube', 'open_mode': 'auto'} if handler == 'play_music' else {}))
     assert target not in json.dumps(core.history(), ensure_ascii=False)
     assert core.history()[0]['trigger_phrase'] in ('[web search]', '[music playback]')
 
@@ -175,7 +175,7 @@ def test_real_launcher_logs_no_search_payload(monkeypatch, caplog):
     assert query not in caplog.text
 
 
-def test_manager_tester_and_typed_voice_signals_share_pipeline(qtbot, tmp_path, monkeypatch):
+def test_typed_voice_signals_share_pipeline(qtbot, tmp_path, monkeypatch):
     from src.config.settings import settings
     monkeypatch.setattr(settings, 'STATE_FILE', tmp_path / 'state.json')
     launcher = MagicMock()
@@ -184,10 +184,6 @@ def test_manager_tester_and_typed_voice_signals_share_pipeline(qtbot, tmp_path, 
     controller = ApplicationController(core)
     try:
         controller.manager.navigation.setCurrentRow(2)
-        controller.manager.smart_input.setText('Can you open Chrome please?')
-        controller.manager.smart_test_button.click()
-        assert 'OPEN_APPLICATION' in controller.manager.smart_result.text()
-        assert 'Execution: Not executed' in controller.manager.smart_result.text()
         assert not core.history() and not launcher.mock_calls
         for signal in (controller.pet.command_box.command_submitted, controller.pet.command_box.voice_command_submitted):
             signal.emit('Could you bring up Chrome?')

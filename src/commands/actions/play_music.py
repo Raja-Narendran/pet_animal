@@ -15,13 +15,15 @@ class PlayMusicHandler(BaseCommandHandler):
         if not song_name:
             return CommandResult(
                 success=False,
-                message="What song would you like me to play?",
+                message="Please specify a song name.",
                 action=ActionType.PLAY_MUSIC,
                 target="",
                 pet_state="thinking",
             )
 
-        success, message = self.launcher.play_youtube(song_name)
+        success, message = self.launcher.play_music(song_name,
+            provider=command.parameters.get('provider') or 'youtube',
+            open_mode=command.parameters.get('open_mode', 'auto'))
         return CommandResult(
             success=success,
             message=message,

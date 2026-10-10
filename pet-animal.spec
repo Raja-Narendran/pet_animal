@@ -11,9 +11,9 @@ if not flac_encoder.is_file():
 a = Analysis(
     ['src/main.py'],
     pathex=[],
-    binaries=collect_dynamic_libs('vosk'),
+    binaries=[],
     datas=[(str(flac_encoder), 'speech_recognition'), ('petimage', 'petimage'), ('assets/ui', 'assets/ui'),
-           ('assets/speech', 'assets/speech'),
+           ('assets/speech', 'assets/speech'), ('assets/fonts', 'assets/fonts'),
            ('assets/domains', 'assets/domains'),
            ('src/database/migrations', 'src/database/migrations')],
     hiddenimports=[],

@@ -1,7 +1,7 @@
 """Manager review controls; the discovery worker never touches SQLite."""
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QLineEdit,
-    QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QTextEdit, QCheckBox)
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QLineEdit, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QTextEdit, QCheckBox
+from .manager_ui.widgets import ComboBox as QComboBox
 from ..services.software_discovery import SoftwareDiscoveryService, ApplicationValidator, ValidationStatus
 from ..services.software_discovery.validator import canonical_path
 
@@ -76,7 +76,7 @@ class SoftwareDiscoveryState(QObject):
 class SoftwareDiscoveryPanel(QWidget):
     def __init__(self, manager):
         super().__init__(manager)
-        from .manager_window import button, label
+        from .manager_ui.widgets import button, label, actions
         self.manager, self.core, self.state = manager, manager.core, manager.software_state
         self.query, self.filter = '', 'All'
         layout = QVBoxLayout(self)
@@ -89,13 +89,13 @@ class SoftwareDiscoveryPanel(QWidget):
         known_layout, scan_layout = QVBoxLayout(registered), QVBoxLayout(discovered)
         self.registered_table = self._table(['Application', 'Executable', 'Aliases', 'Status'])
         known_layout.addWidget(self.registered_table)
-        actions = QHBoxLayout()
-        actions.addWidget(button('Enable / Disable', lambda: self._selected_application(self._toggle)))
-        actions.addWidget(button('Rename / Edit aliases', lambda: self._selected_application(self._edit)))
-        actions.addWidget(button('Remove', lambda: self._selected_application(self._remove)))
-        known_layout.addLayout(actions)
+        known_actions = []
+        known_actions.append(button('Enable / Disable', lambda: self._selected_application(self._toggle), icon='check_circle'))
+        known_actions.append(button('Rename / Edit aliases', lambda: self._selected_application(self._edit), icon='edit'))
+        known_actions.append(button('Remove', lambda: self._selected_application(self._remove), icon='delete'))
+        known_layout.addWidget(actions(known_actions))
         known_layout.addWidget(label('Use New command above to configure phrases for any approved application.', 'muted'))
-        controls = QHBoxLayout()
+        controls = QVBoxLayout()
         self.search = QLineEdit()
         self.search.setPlaceholderText('Search application name or publisher…')
         self.search.textChanged.connect(self._search)
@@ -103,10 +103,10 @@ class SoftwareDiscoveryPanel(QWidget):
         self.filter_box = QComboBox()
         self.filter_box.addItems(['All', 'Launchable', 'Already Added', 'Needs Review', 'Invalid'])
         self.filter_box.currentTextChanged.connect(self._filter)
-        controls.addWidget(self.filter_box)
-        self.refresh_button = button('Refresh Installed Software', self.state.start)
+
+        self.refresh_button = button('Refresh Installed Software', self.state.start, icon='refresh')
         self.refresh_button.setToolTip('Scan installed software and add all valid applications with launch commands.')
-        controls.addWidget(self.refresh_button)
+        controls.addWidget(actions([self.filter_box, self.refresh_button]))
         scan_layout.addLayout(controls)
         self.status = label(self.state.message, 'muted')
         scan_layout.addWidget(self.status)
@@ -116,7 +116,7 @@ class SoftwareDiscoveryPanel(QWidget):
         scan_layout.addWidget(self.add_button)
         self.discovery_table.itemSelectionChanged.connect(self._selection_changed)
         scan_layout.addWidget(label('Refresh adds all valid applications automatically. Unsupported entries are skipped; existing application settings are preserved.', 'muted'))
-        self.state.updated.connect(self.render)
+        self.manager.subscribe_page(self.state.updated, self.render)
         self.render()
 
     @staticmethod
@@ -129,6 +129,8 @@ class SoftwareDiscoveryPanel(QWidget):
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.setWordWrap(False)
+        table.setShowGrid(False)
+        table.setMinimumWidth(0)
         table.setMinimumHeight(210)
         return table
 
@@ -140,6 +142,7 @@ class SoftwareDiscoveryPanel(QWidget):
                 item = QTableWidgetItem(str(value or '—'))
                 item.setToolTip(str(value or ''))
                 table.setItem(row, column, item)
+            table.setRowHeight(row, 48)
 
     def _search(self, value):
         self.query = value.casefold()

@@ -34,6 +34,10 @@ class ResponseBubbleWidget(QWidget):
     file_selected = pyqtSignal(str, str)
     file_sort_selected = pyqtSignal(str, str)
     file_dismissed = pyqtSignal()
+    memory_selected = pyqtSignal(str, str)
+    memory_copy_requested = pyqtSignal(str, str, str)
+    memory_back_requested = pyqtSignal(str)
+    memory_dismissed = pyqtSignal()
 
     BORDER_RADIUS = 12
     SHADOW_OFFSET_Y = 3
@@ -54,6 +58,10 @@ class ResponseBubbleWidget(QWidget):
         self.suggestion_mode = False
         self.file_mode = False
         self.file_token = None
+        self.memory_mode = False
+        self.memory_token = None
+        self.memory_copy_buttons = {}
+        self.memory_select_buttons = {}
         self._init_ui()
 
         self.auto_hide_timer = QTimer(self)
@@ -122,6 +130,41 @@ class ResponseBubbleWidget(QWidget):
         self.close_results_button.clicked.connect(self.dismiss_files)
         layout.insertWidget(1, self.file_controls)
         self.file_controls.hide()
+
+        self.memory_controls = QWidget(self)
+        memory_controls = QHBoxLayout(self.memory_controls)
+        memory_controls.setContentsMargins(0, 0, 0, 0)
+        self.memory_back_button = QPushButton('‹ Back', self.memory_controls)
+        self.memory_close_button = QPushButton('×', self.memory_controls)
+        self.memory_close_button.setAccessibleName('Close memory results')
+        for button in (self.memory_back_button, self.memory_close_button):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setStyleSheet('QPushButton { color: #f8fafc; background: #334155; border: 0; border-radius: 5px; padding: 5px 9px; } QPushButton:hover { background: #475569; }')
+        memory_controls.addWidget(self.memory_back_button)
+        memory_controls.addStretch()
+        memory_controls.addWidget(self.memory_close_button)
+        self.memory_back_button.clicked.connect(lambda: self.memory_back_requested.emit(self.memory_token))
+        self.memory_close_button.clicked.connect(self.dismiss_memories)
+        layout.insertWidget(1, self.memory_controls)
+        self.memory_controls.hide()
+
+        self.memory_list = QListWidget(self)
+        self.memory_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.memory_list.viewport().setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.memory_list.setAccessibleName('Saved memory choices')
+        self.memory_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.memory_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.memory_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerItem)
+        self.memory_list.setStyleSheet('QListWidget { color: #f8fafc; background: transparent; border: none; } QListWidget::item { border-bottom: 1px solid #334155; }')
+        layout.addWidget(self.memory_list)
+        self.memory_list.hide()
+        self.memory_hint = QLabel(self)
+        self.memory_hint.setTextFormat(Qt.TextFormat.PlainText)
+        self.memory_hint.setWordWrap(True)
+        self.memory_hint.setStyleSheet('color: #94a3b8; background: transparent; font: 11px "Segoe UI";')
+        layout.addWidget(self.memory_hint)
+        self.memory_hint.hide()
         self.hide()
 
     def _item_clicked(self, item):
@@ -142,6 +185,7 @@ class ResponseBubbleWidget(QWidget):
             self.file_dismissed.emit()
 
     def show_file_results(self, result):
+        self._clear_memories()
         previous = self.selected_file if self.file_token == result['search_token'] else None
         self.suggestion_mode = False
         self.file_mode = True
@@ -194,6 +238,105 @@ class ResponseBubbleWidget(QWidget):
         self.raise_()
         self.bubble_shown.emit()
         self.auto_hide_timer.start(result['search_remaining_ms'])
+
+    def _clear_memories(self):
+        active = self.memory_mode
+        self.memory_mode = False
+        self.memory_token = None
+        self.memory_list.clear()
+        self.memory_copy_buttons.clear()
+        self.memory_select_buttons.clear()
+        self.memory_controls.hide()
+        self.memory_list.hide()
+        self.memory_hint.hide()
+        if active:
+            self.memory_dismissed.emit()
+
+    def dismiss_memories(self):
+        if self.memory_mode:
+            self._clear_memories()
+            self.hide()
+
+    def show_memory_results(self, result):
+        # Results contain names, masks and opaque IDs, never clipboard plaintext.
+        self.auto_hide_timer.stop()
+        self.suggestion_mode = False
+        self.file_mode = False
+        self.file_controls.hide()
+        self.suggestion_list.hide()
+        self.suggestion_list.clear()
+        self.memory_mode = True
+        self.memory_token = result['memory_token']
+        self.setMinimumWidth(360)
+        self.setMaximumWidth(380)
+        self.label.setText(self.label.fontMetrics().elidedText(result['message'], Qt.TextElideMode.ElideRight, 290))
+        self.label.setToolTip('')
+        self.memory_controls.show()
+        self.memory_back_button.setVisible(result['memory_can_back'])
+        hint = ('Choose a name for details · Copy a saved value' if result['memory_view'] == 'list'
+                else 'Copy puts the full value on your clipboard')
+        self.memory_hint.setText(hint)
+        self.memory_hint.show()
+        self.memory_list.clear()
+        self.memory_copy_buttons.clear()
+        self.memory_select_buttons.clear()
+        token = self.memory_token
+        for entry in result['memory_items']:
+            memory_id = entry['memory_id']
+            item = QListWidgetItem()
+            item.setSizeHint(QSize(0, 66))
+            self.memory_list.addItem(item)
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(4, 6, 4, 6)
+            words = QVBoxLayout()
+            words.setSpacing(3)
+            if entry['selectable']:
+                name = QPushButton(entry['title'], row)
+                name.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                name.setCursor(Qt.CursorShape.PointingHandCursor)
+                name.setStyleSheet('QPushButton { color: #f8fafc; text-align: left; background: transparent; border: 0; padding: 0; font: 12px "Segoe UI"; } QPushButton:hover { color: #93c5fd; }')
+                name.setText(name.fontMetrics().elidedText(entry['title'], Qt.TextElideMode.ElideRight, 230))
+                name.setAccessibleName('Show ' + entry['title'])
+                name.setToolTip(entry['title'])
+                name.clicked.connect(lambda checked=False, key=memory_id, session=token: self.memory_selected.emit(session, key))
+                self.memory_select_buttons[memory_id] = name
+            else:
+                name = QLabel(entry['title'], row)
+                name.setTextFormat(Qt.TextFormat.PlainText)
+                name.setStyleSheet('color: #94a3b8; background: transparent; font: 11px "Segoe UI";')
+            words.addWidget(name)
+            if entry['preview']:
+                preview = QLabel(entry['preview'], row)
+                preview.setTextFormat(Qt.TextFormat.PlainText)
+                preview.setStyleSheet('color: #f8fafc; background: transparent; font: 13px "Consolas";')
+                words.addWidget(preview)
+            row_layout.addLayout(words, 1)
+            field = entry['copy_field']
+            if field:
+                copy = QPushButton('⧉', row)
+                copy.setFixedSize(34, 34)
+                copy.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                copy.setCursor(Qt.CursorShape.PointingHandCursor)
+                copy.setAccessibleName('Copy ' + entry['title'])
+                copy.setToolTip('Copy ' + entry['title'])
+                copy.setStyleSheet('QPushButton { color: #f8fafc; background: #334155; border: 0; border-radius: 6px; font-size: 20px; } QPushButton:hover { background: #2563eb; }')
+                copy.clicked.connect(lambda checked=False, key=memory_id, value=field, session=token: self.memory_copy_requested.emit(session, key, value))
+                self.memory_copy_buttons[(memory_id, field)] = copy
+                row_layout.addWidget(copy)
+            self.memory_list.setItemWidget(item, row)
+        self.memory_list.setFixedHeight(min(4, max(1, len(result['memory_items']))) * 66 + 2)
+        self.memory_list.show()
+        self.adjustSize()
+        self.update_position()
+        self.show()
+        self.raise_()
+        self.bubble_shown.emit()
+        self.auto_hide_timer.start(result['memory_remaining_ms'])
+
+    def show_memory_copy_status(self, message):
+        if self.memory_mode:
+            self.memory_hint.setText(message)
 
     def update_position(self, owner: Optional[QWidget] = None) -> None:
         """Positions the floating bubble directly above the companion pet."""
@@ -258,6 +401,7 @@ class ResponseBubbleWidget(QWidget):
 
     def show_message(self, message: str, timeout_ms: int = settings.BUBBLE_TIMEOUT_MS, *, wrap_paths=False) -> None:
         """Displays a message and schedules auto-hiding."""
+        self._clear_memories()
         self.suggestion_mode = False
         self.file_mode = False
         self.file_controls.hide()
@@ -293,6 +437,7 @@ class ResponseBubbleWidget(QWidget):
 
     def show_suggestions(self, entries, selected_target=None):
         """Show clickable, scrollable choices without taking focus from the input."""
+        self._clear_memories()
         self.auto_hide_timer.stop()
         self.suggestion_mode = True
         self.file_mode = False
@@ -338,6 +483,7 @@ class ResponseBubbleWidget(QWidget):
             self.hide()
 
     def hideEvent(self, event) -> None:
+        self._clear_memories()
         self.auto_hide_timer.stop()
         self.suggestion_mode = False
         self.file_mode = False

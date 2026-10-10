@@ -40,6 +40,11 @@ class BaseLauncher(ABC):
         """Search the web using default browser and search engine."""
         return False, "Not implemented"
 
+    def play_music(self, song_name: str, provider='youtube', open_mode='auto') -> Tuple[bool, str]:
+        if provider == 'youtube':
+            return self.play_youtube(song_name)
+        return False, "This music player is not supported."
+
     def play_youtube(self, song_name: str) -> Tuple[bool, str]:
         """Search and play a song on YouTube."""
         return False, "Not implemented"
@@ -225,6 +230,55 @@ class WindowsLauncher(BaseLauncher):
         """Automates searching and playing the song on YouTube, skipping ads."""
         from .youtube_automation import YouTubeAutomationService
         return YouTubeAutomationService.play_song(song_name)
+
+    @staticmethod
+    def spotify_available():
+        """Ask Windows for the effective protocol association, including Store apps."""
+        if os.name != 'nt':
+            return False
+        import ctypes
+        from ctypes import wintypes
+        query = ctypes.WinDLL('shlwapi', use_last_error=True).AssocQueryStringW
+        query.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.LPCWSTR,
+                          wintypes.LPCWSTR, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+        query.restype = ctypes.c_long
+        # Store apps can activate through COM without a traditional command.
+        # Check ASSOCSTR_APPID and ASSOCSTR_DELEGATEEXECUTE as well as COMMAND.
+        # Only detect the association; Windows performs activation via startfile.
+        for association in (1, 21, 18):
+            size = wintypes.DWORD(0)
+            query(0x1000, association, 'spotify', 'open', None, ctypes.byref(size))
+            if not size.value:
+                continue
+            buffer = ctypes.create_unicode_buffer(size.value)
+            if query(0x1000, association, 'spotify', 'open', buffer, ctypes.byref(size)) == 0 and buffer.value:
+                return True
+        return False
+
+    def play_music(self, song_name: str, provider='youtube', open_mode='auto') -> Tuple[bool, str]:
+        if not isinstance(song_name, str) or any(ord(c) < 32 or ord(c) == 127 for c in song_name):
+            return False, 'Invalid song name.'
+        song_name = song_name.strip()
+        if not song_name:
+            return False, 'Please specify a song name.'
+        if provider not in ('youtube', 'spotify') or open_mode not in ('auto', 'browser'):
+            return False, 'Invalid music player preference.'
+        if provider == 'youtube':
+            return self.play_youtube(song_name)
+        encoded = urllib.parse.quote(song_name, safe='')
+        if open_mode == 'auto':
+            try:
+                if self.spotify_available():
+                    os.startfile('spotify:search:' + encoded, 'open')
+                    return True, f"Opening '{song_name}' in Spotify…"
+            except (OSError, AttributeError):
+                pass
+        try:
+            if webbrowser.open('https://open.spotify.com/search/' + encoded):
+                return True, f"Opening '{song_name}' in Spotify in your browser…"
+        except Exception:
+            pass
+        return False, 'Could not open Spotify in your browser.'
 
     def open_registered_url(self, url: str) -> Tuple[bool, str]:
         """Open only a URL validated by the registered action schema."""

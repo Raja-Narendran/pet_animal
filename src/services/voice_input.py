@@ -1,8 +1,7 @@
 """Local speech recognition with sounddevice capture and cancellable Qt workers.
 
 Multilingual Whisper handles Tamil/English speech after a language-independent
-silence detector. The optional English Vosk engine streams partial words.
-Local models are bundled. Only the explicitly selected Google engine uploads audio.
+silence detector. Local models are bundled. Only the explicitly selected Google engine uploads audio.
 """
 import queue as _queue
 import json
@@ -37,14 +36,7 @@ except ImportError:
     if _SR_AVAILABLE:
         logger.warning("sounddevice not installed. Voice input disabled.")
 
-# Runtime never downloads a model: always load the bundled local directory.
-try:
-    import vosk
-    vosk.SetLogLevel(-1)
-    _VOSK_AVAILABLE = True
-except (ImportError, OSError):
-    vosk = None
-    _VOSK_AVAILABLE = False
+_VOSK_AVAILABLE = False
 
 try:
     import numpy as np
@@ -70,31 +62,21 @@ def is_speech_available(mode=None):
         return _VAD_AVAILABLE
     if mode == 'multilingual':
         return _MULTILINGUAL_AVAILABLE and settings.VOICE_MULTILINGUAL_MODEL_DIR.is_dir()
-    return mode == 'english' and _VOSK_AVAILABLE and settings.VOICE_MODEL_DIR.is_dir()
+    return False
 
 
 # Compatibility for legacy imports; runtime entry points use the dynamic check.
 SPEECH_AVAILABLE = is_speech_available()
 _multilingual_model = None
 _multilingual_lock = threading.Lock()
-_model = None
-_model_lock = threading.Lock()
 
 
 def get_voice_model():
-    global _model
-    with _model_lock:
-        if _model is None:
-            if not settings.VOICE_MODEL_DIR.is_dir():
-                raise OSError('Bundled offline speech model is missing.')
-            _model = vosk.Model(str(settings.VOICE_MODEL_DIR))
-    return _model
+    raise RuntimeError("Vosk voice model has been removed.")
 
 
 def create_recognizer(sample_rate=16000):
-    recognizer = vosk.KaldiRecognizer(get_voice_model(), sample_rate)
-    recognizer.SetWords(True)
-    return recognizer
+    raise RuntimeError("Vosk recognizer has been removed.")
 
 
 def get_multilingual_model():
@@ -408,65 +390,7 @@ class VoiceInputWorker(QThread):
             if not is_speech_available(self.mode):
                 self.error_occurred.emit('Speech recognition is not available. Check the selected engine and microphone dependencies.')
                 return
-            if self.mode in ('multilingual', 'google'):
-                self._run_buffered()
-                return
-            # Warm up the model before opening the microphone. No spoken prefix is discarded.
-            get_voice_model()
-            if self._is_cancelled() or self._finish_event.is_set():
-                return
-            with self._get_microphone() as source:
-                recognizer = create_recognizer(source.SAMPLE_RATE)
-                self.listening_started.emit()
-                elapsed = 0.0
-                speech_start = None
-                last_partial = ''
-                result = None
-                segments = []
-                # Audio duration bounds capture even when silence never triggers an endpoint.
-                while not self._is_cancelled() and not self._finish_event.is_set():
-                    data = source.stream.read(source.CHUNK)
-                    elapsed += len(data) / (source.SAMPLE_RATE * source.SAMPLE_WIDTH)
-                    if recognizer.AcceptWaveform(data):
-                        candidate = json.loads(recognizer.Result())
-                        if candidate.get('text', '').strip():
-                            if self.hold_to_talk:
-                                segments.append(candidate)
-                            else:
-                                result = candidate
-                                break
-                    else:
-                        partial = json.loads(recognizer.PartialResult()).get('partial', '')
-                        if partial:
-                            if speech_start is None:
-                                speech_start = elapsed
-                            if partial != last_partial:
-                                self.partial_recognized.emit(partial)
-                                last_partial = partial
-                    if not self.hold_to_talk and speech_start is None and elapsed >= self.timeout:
-                        break
-                    if (elapsed >= self.phrase_time_limit if self.hold_to_talk else
-                        speech_start is not None and elapsed - speech_start >= self.phrase_time_limit):
-                        self.error_occurred.emit('Voice input reached the recording limit. Please try a shorter command.')
-                        return
-                if self._is_cancelled():
-                    return
-                self.processing_started.emit()
-                result = result or json.loads(recognizer.FinalResult())
-                if self.hold_to_talk:
-                    segments.append(result)
-                    result = {'text': ' '.join(part.get('text', '').strip() for part in segments).strip(),
-                              'result': [word for part in segments for word in part.get('result', [])]}
-            text = result.get('text', '').strip()
-            if not text:
-                self.error_occurred.emit('No clear speech detected. Check your microphone and try again.')
-                return
-            words = result.get('result', [])
-            if words and sum(word.get('conf', 0) for word in words) / len(words) < 0.55:
-                self.error_occurred.emit("Didn't catch that clearly. Please try again.")
-                return
-            if not self._is_cancelled():
-                self.speech_recognized.emit(text)
+            self._run_buffered()
         except InterruptedError:
             pass
         except OSError:

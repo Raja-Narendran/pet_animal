@@ -16,15 +16,19 @@ from ..services.windows_typing import WindowsTypingService, parse_dictation
 class BrowserWorker(QThread):
     completed = pyqtSignal(bool, str)
 
-    def __init__(self, launcher, action, target, parent):
+    def __init__(self, launcher, action, target, parent, music_provider="youtube", music_open_mode="auto"):
         super().__init__(parent)
         self.launcher, self.action, self.target = launcher, action, target
+        self.music_provider, self.music_open_mode = music_provider, music_open_mode
 
     def run(self):
         try:
-            handler = getattr(self.launcher, {'search': 'search_web', 'music': 'play_youtube',
+            handler = getattr(self.launcher, {'search': 'search_web', 'music': 'play_music',
                                              'url': 'open_registered_url'}[self.action])
-            success, message = handler(self.target)
+            if self.action == 'music':
+                success, message = self.launcher.play_music(self.target, provider=self.music_provider, open_mode=self.music_open_mode)
+            else:
+                success, message = handler(self.target)
         except Exception:
             success, message = False, 'The browser action could not be executed.'
         self.completed.emit(success, message)
@@ -115,6 +119,10 @@ class ApplicationController(QObject):
         self.pet.response_bubble.file_selected.connect(self._file_selected)
         self.pet.response_bubble.file_sort_selected.connect(self._file_sort_selected)
         self.pet.response_bubble.file_dismissed.connect(self._dismiss_file_results)
+        self.pet.response_bubble.memory_selected.connect(self._memory_selected)
+        self.pet.response_bubble.memory_copy_requested.connect(self._memory_copy_requested)
+        self.pet.response_bubble.memory_back_requested.connect(self._memory_back_requested)
+        self.pet.response_bubble.memory_dismissed.connect(self._dismiss_memory_results)
         self.pet.close_btn.clicked.disconnect()
         self.pet.close_btn.clicked.connect(self.hide_pet)
         self.pet.close_btn.setToolTip('Hide floating pet')
@@ -247,6 +255,7 @@ class ApplicationController(QObject):
         self.pet._reanchor_pet()
         self.pet.response_bubble.dismiss_suggestions()
         self.pet.response_bubble.dismiss_files()
+        self.pet.response_bubble.dismiss_memories()
         if box._start_voice_input(hold_to_talk=True):
             worker = box._voice_worker
             self._hotkey_voice_worker = worker
@@ -298,10 +307,14 @@ class ApplicationController(QObject):
         pet = getattr(self, 'pet', None)
         if pet is not None and not self._shutting_down and watched is pet and event.type() == QEvent.Type.Hide:
             self._cancel_hotkey_voice()
+            pet.response_bubble.dismiss_memories()
         if pet is not None and not self._shutting_down and watched is pet.command_box.input_field:
             bubble = pet.response_bubble
             if event.type() == QEvent.Type.Hide:
                 bubble.dismiss_suggestions()
+            elif event.type() == QEvent.Type.KeyPress and bubble.memory_mode and event.key() == Qt.Key.Key_Escape:
+                bubble.dismiss_memories()
+                return True
             elif event.type() == QEvent.Type.KeyPress and (bubble.suggestion_mode or bubble.file_mode) and bubble.isVisible():
                 if bubble.file_mode and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not watched.text().strip():
                     if bubble.selected_file:
@@ -318,6 +331,38 @@ class ApplicationController(QObject):
                     bubble.dismiss_suggestions()
                     return True
         return super().eventFilter(watched, event)
+
+    def _dismiss_memory_results(self):
+        self.core.memory_conversation.clear()
+
+    def _memory_selected(self, token, memory_id):
+        if self._shutting_down:
+            return
+        try:
+            result = self.core.memory_conversation.select(token, memory_id)
+        except ValueError as error:
+            result = dict(success=False, message=str(error), pet_state='error')
+        self._show_result(result)
+
+    def _memory_back_requested(self, token):
+        if self._shutting_down:
+            return
+        try:
+            result = self.core.memory_conversation.list(token)
+        except ValueError as error:
+            result = dict(success=False, message=str(error), pet_state='error')
+        self._show_result(result)
+
+    def _memory_copy_requested(self, token, memory_id, field):
+        if self._shutting_down:
+            return
+        try:
+            value = self.core.memory_conversation.copy_value(token, memory_id, field)
+            QApplication.clipboard().setText(value)
+        except ValueError as error:
+            self.pet.response_bubble.show_memory_copy_status(str(error))
+            return
+        self.pet.response_bubble.show_memory_copy_status('Copied to clipboard.')
 
     def _dismiss_file_results(self):
         self.core.file_session.clear()
@@ -368,7 +413,8 @@ class ApplicationController(QObject):
             worker.finished.connect(lambda w=worker: self._release_file_worker(w))
             worker.start()
         if 'browser_action' in result:
-            worker = BrowserWorker(self.core.launcher, result['browser_action'], result['browser_target'], self)
+            worker = BrowserWorker(self.core.launcher, result['browser_action'], result['browser_target'], self,
+                                   result.get('music_provider') or 'youtube', result.get('music_open_mode', 'auto'))
             self._browser_workers.add(worker)
             worker.completed.connect(lambda success, message, action=worker.action: self._browser_completed(action, success, message))
             worker.finished.connect(lambda: self._release_browser_worker(worker))
@@ -519,7 +565,9 @@ class ApplicationController(QObject):
 
     def _show_result(self, result):
         """Display results from typed, voice, and asynchronous browser commands."""
-        if 'file_results' in result:
+        if 'memory_items' in result:
+            self.pet.response_bubble.show_memory_results(result)
+        elif 'file_results' in result:
             self.pet.response_bubble.show_file_results(result)
         elif result.get('file_search'):
             self.pet.response_bubble.show_message(result['message'], timeout_ms=30000, wrap_paths=True)
@@ -641,6 +689,7 @@ class ApplicationController(QObject):
             return
         self.stop_routine()
         self._cancel_hotkey_voice()
+        self.pet.response_bubble.dismiss_memories()
         self._shutting_down = True
         if self._voice_hotkey is not None:
             self._voice_hotkey.stop()

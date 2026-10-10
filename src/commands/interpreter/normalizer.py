@@ -1,5 +1,6 @@
 """Conservative, language-aware normalization; exact matching uses the original text."""
 from dataclasses import dataclass
+import re
 from ..voice_phrases import POLITE, has_negation, normalize_language_text, normalize_mixed_voice
 from .patterns import MUSIC_PREFIXES, SEARCH_PREFIXES
 from .memory_rules import RAW_PREFIXES as PREFIXES, memory_store_parts
@@ -39,4 +40,12 @@ def normalize_input(text: str) -> NormalizedInput:
                     normalized = normalized[:-len(suffix)].strip()
                     changed = True
                     break
-    return NormalizedInput(normalize_mixed_voice(normalized))
+    translated = normalize_mixed_voice(normalized)
+    # Legacy voice normalization removes "on youtube". Preserve an explicit
+    # provider before resolving the saved default, including polite wrappers.
+    provider = re.search(r'\s+on\s+(spotify|youtube)\s*[.!?]?\s*$', normalized, re.IGNORECASE)
+    if provider and any(translated.startswith(prefix + ' ') for prefix in MUSIC_PREFIXES):
+        suffix = ' on ' + provider[1].lower()
+        if not translated.endswith(suffix):
+            translated += suffix
+    return NormalizedInput(translated)

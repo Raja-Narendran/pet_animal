@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from . import secrets
 from .memory import MemoryService
+from .memory.conversation import MemoryConversation, matching_memories, memory_kind
 from .memory.service import normalize as normalize_memory
 from .shortcuts import APPLICATION_NAMES, ApplicationShortcut, match_shortcuts
 from .file_search import FileSearchSession
@@ -52,7 +53,7 @@ def text(value, label, limit=1000):
 
 DEFAULT_PET = dict(size=240, x=None, y=None, always_on_top=True, animations=True,
                    chat_width=320, text_size=13, background='#18181b', radius=20, opacity=0.94)
-DEFAULT_APP = dict(launch_pet=True, start_minimized=False, tray=True, notifications=True, theme='light', page='Dashboard', voice_mode='google', google_voice_language='en-IN', voice_hotkey_enabled=False)
+DEFAULT_APP = dict(launch_pet=True, start_minimized=False, tray=True, notifications=True, theme='light', page='Dashboard', voice_mode='google', google_voice_language='en-IN', voice_hotkey_enabled=False, default_music_player='youtube', spotify_open_mode='auto')
 
 
 class ApplicationCore:
@@ -114,6 +115,7 @@ class ApplicationCore:
         self._seed()
         self.memory_service = MemoryService(self.db, changed=self.changed)
         self.memory_retriever = self.memory_service.retriever
+        self.memory_conversation = MemoryConversation(self.memory_service)
         self.memory_resolver = MemoryResolver(self.memory_retriever)
         if isinstance(self.launcher, WindowsLauncher):
             self.launcher.registered_application_lookup = self.get_registered_application
@@ -127,6 +129,7 @@ class ApplicationCore:
             self.workflows.active.cancel()
             self.workflows.finish()
         self.file_session.clear()
+        self.memory_conversation.clear()
         self.memory_service.close_session()
         self.db.close()
 
@@ -150,8 +153,29 @@ class ApplicationCore:
                 for key in sorted(WindowsLauncher.SUPPORTED_APPS):
                     self._write_command(identifier(), 'Open ' + key.title(), 'application', key, ['open ' + key, 'launch ' + key, 'start ' + key, key], True, True)
                 for key, url in settings.SUPPORTED_URLS.items():
+                    if key == 'spotify':
+                        continue  # Added separately without taking application phrases.
                     self._write_command(identifier(), 'Open ' + key.title(), 'url', url, ['open ' + key, key], True, True)
                 self.db.execute('INSERT INTO app_settings VALUES (?,?)', ('commands_seeded', 'true'))
+            self._seed_spotify()
+
+    def _seed_spotify(self):
+        # One-time addition preserves later user deletion/disablement.
+        if not self.get_setting('spotify_seeded', False):
+            url = settings.SUPPORTED_URLS['spotify']
+            if not any(c['action_type'] == 'url' and c['target'] == url for c in self.commands()):
+                registered = {p['phrase'] for p in self.rows('SELECT phrase FROM command_phrases')}
+                phrases = [p for p in ('open spotify website', 'spotify website') if p not in registered]
+                if not phrases:
+                    phrase = 'open spotify website'
+                    index = 2
+                    while phrase in registered:
+                        phrase = f'open spotify website {index}'
+                        index += 1
+                    phrases = [phrase]
+                self._write_command(identifier(), 'Open Spotify', 'url', url, phrases, True, True)
+            self.db.execute('INSERT INTO app_settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                            ('spotify_seeded', 'true'))
 
     def categories(self):
         return self.rows('SELECT * FROM memory_categories ORDER BY sensitive, name')
@@ -244,6 +268,7 @@ class ApplicationCore:
 
     def execute_application_shortcut(self, target):
         """Resolve a live target ID; a displayed suggestion grants no lasting authority."""
+        self.memory_conversation.clear()
         self.file_session.clear()
         entry = next((item for item in self.application_shortcuts() if item.target == target), None)
         if entry is None:
@@ -553,7 +578,7 @@ class ApplicationCore:
         normalized = normalize(phrase)
         if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=?', (normalized,)):
             return phrase
-        translated = normalize_mixed_voice(phrase)
+        translated = normalize_input(phrase).text
         # A canonical registered phrase also wins, especially when disabled.
         if self.rows('SELECT id FROM command_phrases WHERE normalized_phrase=?', (normalize(translated),)):
             return translated
@@ -631,6 +656,9 @@ class ApplicationCore:
             if not AUTO_EXECUTE_THRESHOLD <= result.intent.confidence <= 1.0:
                 return InterpretationResult(False, result.intent, reason=MatchReason.LOW_CONFIDENCE, confidence=result.intent.confidence)
             return result
+        if result.intent.intent == IntentType.PLAY_MEDIA:
+            result = replace(result, intent=replace(result.intent,
+                target=self.app_settings()['default_music_player'] if result.intent.source == 'music_default' else result.intent.target))
         return self.memory_resolver.resolve(result.intent, self.commands(), self._application_aliases)
 
     @staticmethod
@@ -653,11 +681,14 @@ class ApplicationCore:
         return 'Unsupported command. Type help to see registered phrases.'
 
     def execute(self, phrase, defer_browser=False, defer_file_search=False):
+        self.memory_conversation.clear()
         interpretation = self.interpret(phrase)
         if interpretation.reason == MatchReason.INVALID_INPUT:
             self.file_session.clear()
             return dict(success=False, message=self.interpretation_message(interpretation), pet_state='error')
         intent = interpretation.intent if interpretation.matched else None
+        if intent and intent.intent == IntentType.PLAY_MEDIA and not intent.value:
+            return dict(success=False, message='Please specify a song name.', pet_state='thinking')
         if intent and intent.intent == IntentType.RUN_ROUTINE:
             return dict(success=True, message="Starting routine…", pet_state="working", routine_id=intent.target, routine_phrase=normalize(phrase))
         if intent and intent.intent == IntentType.FILE_SEARCH:
@@ -680,16 +711,33 @@ class ApplicationCore:
         self.file_session.clear()
         if intent and intent.intent == IntentType.MEMORY_QUERY:
             try:
+                if intent.source == 'memory_panel':
+                    if intent.action == 'LIST' and intent.target in ('password', 'card'):
+                        rows = matching_memories(self.memory_service, None, intent.target)
+                        return self.memory_conversation.begin(rows, intent.target, listing=True)
+                    options = dict(intent.filters)
+                    kind, field = options.get('kind'), options.get('field') or None
+                    if (intent.action != 'LOOKUP' or kind not in ('password', 'card')
+                            or not isinstance(intent.target, str) or not 1 <= len(intent.target) <= 200
+                            or field not in (None, 'card_number', 'cvv', 'expiry')):
+                        raise ValueError('Invalid memory query.')
+                    rows = matching_memories(self.memory_service, intent.target, kind)
+                    return self.memory_conversation.begin(rows, kind, field=field)
                 is_pref = bool(intent.target and intent.target.startswith('preferred.'))
-                memory = self.get_memory_by_key(intent.target, reveal=not is_pref)
+                memory = self.get_memory_by_key(intent.target, consume=False)
+                if memory and memory['sensitive'] and not is_pref:
+                    return self.memory_conversation.begin([memory], memory_kind(memory))
             except ValueError:
-                return dict(success=False, message='Invalid memory query.', pet_state='error')
+                self.memory_conversation.clear()
+                return dict(success=False, message='This memory is unavailable. Review it in the Memory Manager.', pet_state='error')
             if not memory:
                 message = ('Your name has not been saved.' if intent.target == 'user.name' else 'That memory has not been saved.')
-            elif memory['sensitive'] and is_pref:
+            elif memory['sensitive']:
                 message = 'Sensitive memory is saved. Reveal it in the Memory Manager.'
             else:
                 message = memory['memory_value']
+            if memory:
+                self.memory_service.record_access(memory['id'])
             return dict(success=bool(memory), message=message, pet_state='success' if memory else 'idle')
         if intent and intent.intent in (IntentType.MEMORY_STORE, IntentType.MEMORY_FORGET):
             try:
@@ -698,7 +746,7 @@ class ApplicationCore:
                 return dict(success=False, message=str(error), pet_state='error')
         if intent and intent.intent == IntentType.SHOW_HELP:
             names = [c['phrases'][0] for c in self.commands() if c['enabled']]
-            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nFiles: /<name>; find <name>; find <name> folder; open it; yes; show results; open <number>\nBrowser: search <query>; plain text searches Google; amazon.com opens a website; play <song> on youtube\nMemory: remember my name as <name>; save my preferred browser as <app>; what is my editor; forget my preferred browser', pet_state='idle')
+            return dict(success=True, message='Commands: ' + ', '.join(names) + '\nFiles: /<name>; find <name>; find <name> folder; open it; yes; show results; open <number>\nBrowser: search <query>; plain text searches Google; amazon.com opens a website; play <song>; play <song> on spotify; play <song> on youtube\nMemory: remember my name as <name>; save my preferred browser as <app>; what is my editor; forget my preferred browser; my <name> password; list my passwords; list my card details', pet_state='idle')
         if intent and intent.intent == IntentType.OPEN_WEBSITE and intent.source == DIRECT_WEBSITE_SOURCE:
             # Revalidate at dispatch, even if an interpreter supplies forged metadata.
             try:
@@ -805,10 +853,15 @@ class ApplicationCore:
                         raise ValueError('Invalid browser value.')
                     if defer_browser:
                         return dict(success=True, message='Searching…' if action == 'search' else 'Finding your song…',
-                                    pet_state='working', browser_action=action, browser_target=intent.value)
-                    handler = self.launcher.search_web if action == 'search' else self.launcher.play_youtube
+                                    pet_state='working', browser_action=action, browser_target=intent.value,
+                                    music_provider=intent.target if action == 'music' else None,
+                                    music_open_mode=self.app_settings()['spotify_open_mode'])
                     try:
-                        success, message = handler(intent.value)
+                        if action == 'music':
+                            success, message = self.launcher.play_music(intent.value, provider=intent.target,
+                                open_mode=self.app_settings()['spotify_open_mode'])
+                        else:
+                            success, message = self.launcher.search_web(intent.value)
                     except Exception:
                         success, message = False, 'The browser action could not be executed.'
                     return self.finish_browser_action(action, success, message)
@@ -960,7 +1013,10 @@ class ApplicationCore:
         return json.loads(row[0]['value']) if row else default
 
     def app_settings(self):
-        return {key: self.get_setting(key, value) for key, value in DEFAULT_APP.items()}
+        settings_dict = {key: self.get_setting(key, value) for key, value in DEFAULT_APP.items()}
+        if settings_dict.get('voice_mode') not in ('multilingual', 'google'):
+            settings_dict['voice_mode'] = 'google'
+        return settings_dict
 
     @staticmethod
     def validate_settings(config):
@@ -970,7 +1026,9 @@ class ApplicationCore:
             config = dict(config, voice_hotkey_enabled=False)
         if 'voice_mode' not in config:
             config = dict(config, voice_mode='google')
-        config = dict(config, google_voice_language=config.get('google_voice_language', 'en-IN'))
+        config = dict(config, google_voice_language=config.get('google_voice_language', 'en-IN'),
+                      default_music_player=config.get('default_music_player', 'youtube'),
+                      spotify_open_mode=config.get('spotify_open_mode', 'auto'))
         if set(config) != set(DEFAULT_APP):
             raise ValueError('Invalid application settings.')
         for key in ('launch_pet', 'start_minimized', 'tray', 'notifications', 'voice_hotkey_enabled'):
@@ -978,10 +1036,12 @@ class ApplicationCore:
                 raise ValueError('Invalid setting: ' + key)
         if config['theme'] not in ('light', 'dark') or config['page'] not in ('Dashboard', 'Memory', 'Commands', 'Workflows', 'Pet Studio', 'Activity', 'Settings'):
             raise ValueError('Invalid theme or page.')
-        if config.get('voice_mode') not in ('english', 'multilingual', 'google'):
+        if config.get('voice_mode') not in ('multilingual', 'google'):
             raise ValueError('Invalid voice mode.')
         if config['google_voice_language'] not in ('en-IN', 'ta-IN'):
             raise ValueError('Invalid Google voice language.')
+        if config['default_music_player'] not in ('youtube', 'spotify') or config['spotify_open_mode'] not in ('auto', 'browser'):
+            raise ValueError('Invalid music player preference.')
         if config['start_minimized'] and not config['tray']:
             raise ValueError('Start minimized requires the system tray.')
 
@@ -992,7 +1052,9 @@ class ApplicationCore:
             config = dict(config, voice_hotkey_enabled=False)
         if 'voice_mode' not in config:
             config = dict(config, voice_mode='google')
-        config = dict(config, google_voice_language=config.get('google_voice_language', 'en-IN'))
+        config = dict(config, google_voice_language=config.get('google_voice_language', 'en-IN'),
+                      default_music_player=config.get('default_music_player', 'youtube'),
+                      spotify_open_mode=config.get('spotify_open_mode', 'auto'))
         self.validate_settings(config)
         with self.db:
             for key, value in config.items():
@@ -1011,9 +1073,11 @@ class ApplicationCore:
             raise ValueError('Invalid configuration export.')
         settings_payload = dict(payload.get('settings') or {})
         settings_payload.setdefault('voice_hotkey_enabled', False)
-        if 'voice_mode' not in settings_payload:
+        if settings_payload.get('voice_mode') not in ('multilingual', 'google'):
             settings_payload['voice_mode'] = 'google'
         settings_payload.setdefault('google_voice_language', 'en-IN')
+        settings_payload.setdefault('default_music_player', 'youtube')
+        settings_payload.setdefault('spotify_open_mode', 'auto')
         self.validate_settings(settings_payload)
         search_config = payload.get('file_search', dict(roots=[], everything_executable=''))
         self.validate_file_search_settings(search_config)
@@ -1065,7 +1129,7 @@ class ApplicationCore:
                     self._write_command(identifier(), command['name'], command['action_type'], remap.get(command['target'], command['target']), command['phrases'], bool(command['enabled']))
             for profile in profiles:
                 self._write_profile(identifier(), profile['name'], profile['selected_asset_id'], profile['config'], bool(profile['is_active']))
-            for key, value in payload['settings'].items():
+            for key, value in settings_payload.items():
                 self.db.execute('INSERT INTO app_settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, json.dumps(value)))
             self.db.execute('INSERT INTO app_settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ('file_search', json.dumps(search_config)))
         self.file_session.clear()
@@ -1160,6 +1224,8 @@ class ApplicationCore:
                     imported_settings[row[0]] = json.loads(row[1])
                 elif row[0] == 'file_search':
                     self.validate_file_search_settings(json.loads(row[1]))
+            if imported_settings.get('voice_mode') not in ('multilingual', 'google'):
+                imported_settings['voice_mode'] = 'google'
             self.validate_settings(imported_settings)
             for row in candidate.execute('SELECT m.memory_value FROM memories m JOIN memory_categories c ON c.id=m.category_id WHERE c.sensitive=1'):
                 secrets.decrypt(row[0])
@@ -1168,11 +1234,14 @@ class ApplicationCore:
             self.backup()  # Recovery snapshot before replacing the live database.
             candidate.commit()
             candidate.backup(self.db)
+            with self.db:
+                self._seed_spotify()
             self.workflows.recover_interrupted()
             self.memory_service.cleanup_session(startup=True)
             self.file_session.clear()
             self.file_search = self.create_file_search_service()
             self._memory_confirmations.clear()
+            self.memory_conversation.clear()
         finally:
             candidate.close()
         self.changed()

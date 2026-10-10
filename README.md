@@ -2,7 +2,7 @@
 
 A local-first Windows desktop companion with optional online speech recognition featuring a transparent floating Husky pet, an interactive command bar with `@` application autocomplete and `/` local file search, bundled multilingual speech recognition (English + Tamil + Tanglish), persistent personal memory with Windows DPAPI encryption, software discovery, and a full-featured 6-page native Manager window.
 
-Pet Animal 2.0 runs natively on Windows with Python and PyQt6. Both windows share a single headless application core and local SQLite database. Storage and local speech engines operate offline. The default Google speech option sends recorded audio to Google over HTTPS; select Vosk or Whisper for offline voice recognition. No cloud telemetry is collected.
+Pet Animal 2.0 runs natively on Windows with Python and PyQt6. Both windows share a single headless application core and local SQLite database. Storage and local speech engines operate offline. The default Google speech option sends recorded audio to Google over HTTPS; select Whisper for offline voice recognition. No cloud telemetry is collected.
 
 ---
 
@@ -144,10 +144,7 @@ Launch the application:
 Pet Animal bundles models in release packages. For local development on a fresh checkout, run the model preparation scripts once:
 
 ```powershell
-# 1. Download Vosk English speech model (~40 MB)
-.venv\Scripts\python.exe release/prepare_voice_model.py
-
-# 2. Download faster-whisper small multilingual model (~486 MB for Tamil + English)
+# Download faster-whisper small multilingual model (~486 MB for Tamil + English)
 .venv\Scripts\python.exe release/prepare_multilingual_voice.py
 ```
 
@@ -290,6 +287,19 @@ Manage persistent structured memories with Windows DPAPI encryption:
 
 ---
 
+#### Fetch memories from the pet
+
+| Request | Balloon interaction |
+| :--- | :--- |
+| `my google password` or `show me my office password` | Shows a partial mask such as `123****098` and a copy button for the full password. |
+| `list my passwords` | Lists saved names with individual password copy buttons. Click a name for a masked preview. |
+| `list my card details` | Lists card names. Click a card for separate card number, CVV and expiry copy buttons. |
+| `my SBI debit card number` or `CVV of my SBI debit card` | Shows the requested field and its copy button. |
+
+Matching uses the names, keys and aliases saved in Memory. Duplicate names offer choices. Disabled, expired and other-profile records are unavailable. Lists do not decrypt secrets; a named request or a row click provides a masked preview, and clicking copy decrypts only that record to place the full value on the clipboard. The balloon never displays the full password, card number or CVV.
+
+Use **Back** to return to the list and **×** or **Esc** to dismiss. Choices expire after two minutes and are cleared when another command replaces them or the pet is hidden. Clipboard content remains available for pasting. Memory requests and values are excluded from command history and logs. Existing encrypted Memory entries work without re-entering them.
+
 ### 3. Commands & Intent Manager
 
 ![Commands Manager](docs/screenshots/commands.png)
@@ -349,8 +359,7 @@ Application preferences and database maintenance:
   - `Enable desktop notifications`: Enables balloon notifications for background events.
 - **Voice Recognition Mode**:
   - `Google Web Speech (Online)`: Default for new settings; English (India) or Tamil (India). Sends recorded audio to Google and requires internet.
-  - `Offline English (Vosk)`: Lightweight CPU speech recognition with streaming partial words.
-  - `Multilingual Offline (Whisper Small)`: Bundled neural model for English, Tamil, and Tanglish.
+  - `Multi-language (Tamil / English Whisper)`: Bundled neural model for English, Tamil, and Tanglish.
 - **Voice Activation Shortcut**: Enable `Ctrl + Windows` in Settings and click **Save preferences**. Hold both keys to speak from any application; release either key to recognize and submit through the existing voice command flow. The pet appears automatically. The shortcut is disabled by default, supports either left/right key, and works only while Pet Animal is running. Wait for the Listening indicator before speaking while a local model warms up. The microphone button keeps its usual automatic silence detection.
 - **Local File Search**:
   - `Search Folders`: Configure custom directory roots (one per line, up to 32 paths) to restrict filesystem searches to chosen folders and workspace trees.
@@ -625,7 +634,7 @@ All runtime data is stored locally in `%LOCALAPPDATA%\PetAnimal`:
 - Encryption is cryptographically bound to the active Windows user account security identifier (SID).
 - Sensitive values are masked (`••••••••`) across listings, tables, search results, and logs.
 - Plain memory JSON exports completely omit sensitive records.
-- Values are only decrypted when an authorized user explicitly clicks **Reveal encrypted value** in the Manager UI.
+- Values are decrypted on an explicit Manager reveal, a named pet request or row click for a masked preview, or a pet copy-button click. Password/card lists stay encrypted; plaintext is passed directly to the clipboard only for the requested copy action.
 
 ### History & Logging Privacy
 - Unsupported inputs are recorded strictly as `[unsupported command]`. Raw invalid inputs are never stored to prevent leaking mistyped credentials.
@@ -828,8 +837,22 @@ Speak **question mark**, **exclamation mark**, **comma**, or **full stop** for p
 
 ### Google Web Speech (Online)
 
-Google is the default voice engine for new settings. Existing saved Vosk or Whisper choices are preserved. In Settings, choose **Google Web Speech (Online)** and select **English (India)** or **Tamil (India)**, then save preferences. Recorded audio is sent to Google over HTTPS and requires internet. Each request uses one selected language; use local Whisper for mixed Tamil/English speech.
+Google is the default voice engine for new settings. In Settings, choose **Google Web Speech (Online)** and select **English (India)** or **Tamil (India)**, then save preferences. Recorded audio is sent to Google over HTTPS and requires internet. Each request uses one selected language; use local Whisper for mixed Tamil/English speech.
 
-The microphone button and Ctrl + Windows hold-to-talk shortcut share the existing waveform, WebRTC VAD, recording limits, and command routing. Google requests time out after 10 seconds and are never retried automatically or used as a fallback from a local engine. Audio remains in memory locally; transcripts and service responses are excluded from diagnostic logs. Local Vosk and Whisper remain offline and never upload audio.
+The microphone button and Ctrl + Windows hold-to-talk shortcut share the existing waveform, WebRTC VAD, recording limits, and command routing. Google requests time out after 10 seconds and are never retried automatically or used as a fallback from a local engine. Audio remains in memory locally; transcripts and service responses are excluded from diagnostic logs. Local Whisper remains offline and never uploads audio.
 
 SpeechRecognition's standard Google integration uses a shared key intended for personal/testing use, which Google may revoke. No Google Cloud account or API-key setting is added. Recognition after cancellation is discarded; an already submitted request may continue until its timeout.
+
+
+### Spotify song search
+
+In **Settings**, choose **Default music player → Spotify** and save preferences.
+`play shape of you` uses your default player; `play shape of you on spotify`
+and `play shape of you on youtube` override it for that request.
+
+**Spotify open using → Auto** opens search results through Windows' installed
+Spotify protocol handler (including Microsoft Store installations), falling back
+to the default browser if the handler is unavailable or activation fails.
+Choose **Browser** to always use Spotify's web search. Select a song and press
+Play in Spotify; this integration does not start playback, use the Spotify API,
+or store Spotify credentials. Existing installations keep YouTube as default.

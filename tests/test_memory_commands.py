@@ -501,7 +501,7 @@ def test_opt_in_resolver_consumption_rejects_an_expired_record():
     assert result.memory_id is None
 
 
-def test_custom_password_memory_query_reveals_decrypted_value(memory_core):
+def test_custom_password_memory_query_returns_masked_copy_choice(memory_core):
     category_id = next(c['id'] for c in memory_core.categories() if c['name'] == 'Password')
     memory_core.save_memory(
         category_id=category_id,
@@ -511,5 +511,9 @@ def test_custom_password_memory_query_reveals_decrypted_value(memory_core):
     )
     res = memory_core.execute("what is my Office password?")
     assert res['success'] is True
-    assert res['message'] == "SecretOffice123!"
+    assert res['message'] == "Office password"
+    assert res['memory_items'][0]['preview'] == "Sec****23!"
+    item = res['memory_items'][0]
+    assert memory_core.memory_conversation.copy_value(
+        res['memory_token'], item['memory_id'], item['copy_field']) == "SecretOffice123!"
 

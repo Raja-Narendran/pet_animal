@@ -131,13 +131,13 @@ def test_spoken_play_shape_of_you_uses_same_launcher_as_typed(qtbot, tmp_path, m
     from src.config.settings import settings
     monkeypatch.setattr(settings, 'STATE_FILE', tmp_path / 'state.json')
     launcher = MagicMock()
-    launcher.play_youtube.return_value = (True, 'Playing your song')
+    launcher.play_music.return_value = (True, 'Playing your song')
     core = ApplicationCore(tmp_path, launcher)
     controller = ApplicationController(core)
     try:
         controller.pet.command_box.voice_command_submitted.emit(spoken)
         qtbot.waitUntil(lambda: not controller._browser_workers, timeout=5000)
-        launcher.play_youtube.assert_called_once_with('shape of you')
+        launcher.play_music.assert_called_once_with('shape of you', provider='youtube', open_mode='auto')
         assert core.history()[0]['execution_status'] == 'success'
     finally:
         controller.shutdown()

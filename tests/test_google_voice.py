@@ -15,7 +15,6 @@ def google_worker(monkeypatch):
     recognizer = MagicMock()
     recognizer.recognize_google.return_value = 'open chrome'
     monkeypatch.setattr(voice.sr, 'Recognizer', lambda: recognizer)
-    monkeypatch.setattr(voice, 'get_voice_model', MagicMock(side_effect=AssertionError('Vosk called')))
     monkeypatch.setattr(voice, 'get_multilingual_model', MagicMock(side_effect=AssertionError('Whisper called')))
     source = MagicMock(SAMPLE_RATE=16000, SAMPLE_WIDTH=2, CHUNK=320)
     source.__enter__.return_value = source
@@ -139,9 +138,7 @@ def test_google_available_without_local_engines_or_models(monkeypatch, tmp_path)
     # Test the real predicate, not the worker fixture's stub.
     for attr in ('_SR_AVAILABLE', '_SD_AVAILABLE', '_VAD_AVAILABLE'):
         monkeypatch.setattr(voice, attr, True)
-    monkeypatch.setattr(voice, '_VOSK_AVAILABLE', False)
     monkeypatch.setattr(voice, '_MULTILINGUAL_AVAILABLE', False)
-    monkeypatch.setattr(voice.settings, 'VOICE_MODEL_DIR', tmp_path / 'missing-vosk')
     monkeypatch.setattr(voice.settings, 'VOICE_MULTILINGUAL_MODEL_DIR', tmp_path / 'missing-whisper')
     assert voice.is_speech_available('google')
     assert not voice.is_speech_available('english')
@@ -153,7 +150,7 @@ def test_local_modes_never_call_google(qtbot, monkeypatch):
     google = MagicMock(side_effect=AssertionError('unexpected upload'))
     monkeypatch.setattr(voice.sr.Recognizer, 'recognize_google', google)
     monkeypatch.setattr(voice, 'is_speech_available', lambda mode=None: True)
-    for mode, method in [('english', 'get_voice_model'), ('multilingual', 'get_multilingual_model')]:
+    for mode, method in [('multilingual', 'get_multilingual_model')]:
         monkeypatch.setattr(voice.settings, 'VOICE_MODE', mode)
         worker = voice.VoiceInputWorker()
         monkeypatch.setattr(voice, method, worker.finish_recording)

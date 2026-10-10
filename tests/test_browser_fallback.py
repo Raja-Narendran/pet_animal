@@ -19,7 +19,7 @@ from src.services.windows_launcher import WindowsLauncher
 @pytest.fixture
 def core(tmp_path):
     launcher = MagicMock()
-    for name in ('search_web', 'play_youtube', 'open_registered_url', 'open_application'):
+    for name in ('search_web', 'play_music', 'open_registered_url', 'open_application'):
         getattr(launcher, name).return_value = (True, 'Browser action completed.')
     service = ApplicationCore(tmp_path / 'data', launcher)
     yield service
@@ -164,7 +164,7 @@ def test_deferred_browser_dispatch(core, phrase, action, target):
 
 
 @pytest.mark.parametrize('action,method', [
-    ('search', 'search_web'), ('music', 'play_youtube'), ('url', 'open_registered_url'),
+    ('search', 'search_web'), ('music', 'play_music'), ('url', 'open_registered_url'),
 ])
 def test_worker_dispatch_and_errors(core, qtbot, action, method):
     worker = BrowserWorker(core.launcher, action, 'payload', None)
@@ -172,7 +172,7 @@ def test_worker_dispatch_and_errors(core, qtbot, action, method):
     worker.completed.connect(lambda success, message: received.append((success, message)))
     worker.run()
     assert received == [(True, 'Browser action completed.')]
-    getattr(core.launcher, method).assert_called_once_with('payload')
+    getattr(core.launcher, method).assert_called_once_with('payload', **({'provider': 'youtube', 'open_mode': 'auto'} if method == 'play_music' else {}))
     assert len(core.launcher.mock_calls) == 1
     getattr(core.launcher, method).side_effect = RuntimeError('private payload')
     worker.run()
